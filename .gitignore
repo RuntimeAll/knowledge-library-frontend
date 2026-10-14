@@ -19,5 +19,5 @@ selenium-debug.log
 *.sln
 *.local
 
-package-lock.json
+# Keep npm lockfile for reproducible project builds.
 yarn.lock

@@ -4,7 +4,7 @@
       <el-tag
         v-for="item in selected"
         :key="String(item.id)"
-        closable
+        :closable="!isDisabled"
         @close="remove(item.id)"
       >
         {{ item.title || item.name || `编号 ${item.id}` }}
@@ -14,6 +14,7 @@
         plain
         type="primary"
         icon="Plus"
+        :disabled="isDisabled"
         @click="openPicker"
       >
         {{ multiple ? '选择' : '更换' }}{{ resourceNames[type] }}
@@ -56,6 +57,18 @@
             {{ label('sourceKind', row.sourceKind) }}
           </template>
         </el-table-column>
+        <el-table-column v-if="['question', 'kp', 'outline'].includes(type)" label="学科" width="90">
+          <template #default="{ row }">{{ label('subject', row.subject) }}</template>
+        </el-table-column>
+        <el-table-column v-if="type === 'question'" label="内容 / 题型" width="160">
+          <template #default="{ row }">{{ label('contentKind', row.contentKind) }}<br>{{ label('questionType', row.questionType) }}</template>
+        </el-table-column>
+        <el-table-column v-if="type === 'kp'" label="层级 / 顶级考点" width="160">
+          <template #default="{ row }">{{ Number(row.depth) === 1 ? '顶级' : Number(row.depth) > 1 ? `第 ${row.depth} 级` : '待计算' }}<br>{{ row.rootName || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="type === 'outline'" label="教材 / 年级 / 学期" width="200">
+          <template #default="{ row }">{{ [label('textbookVersion', row.textbookVersion), label('grade', row.grade), label('term', row.term)].join(' · ') }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="110">
           <template #default="{ row }">
             <el-button
@@ -87,13 +100,17 @@
 <script setup>
 import { listRecords, getRecord } from '@/api/knowledge'
 import { resourceNames, label } from './labels'
+import { formContextKey } from 'element-plus'
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   type: { type: String, required: true },
   multiple: { type: Boolean, default: true },
   excludeIds: { type: Array, default: () => [] },
-  filters: { type: Object, default: () => ({}) }
+  filters: { type: Object, default: () => ({}) },
+  disabled: Boolean
 })
+const parentForm = inject(formContextKey, undefined)
+const isDisabled = computed(() => props.disabled || parentForm?.disabled)
 const emit = defineEmits(['update:modelValue', 'change'])
 const selected = ref([]),
   open = ref(false),
@@ -155,11 +172,13 @@ function publish() {
   emit('change', selected.value)
 }
 function choose(row) {
+  if (isDisabled.value) return
   selected.value = props.multiple ? [...selected.value, row] : [row]
   publish()
   if (!props.multiple) open.value = false
 }
 function remove(id) {
+  if (isDisabled.value) return
   selected.value = selected.value.filter(
     (item) => String(item.id) !== String(id)
   )

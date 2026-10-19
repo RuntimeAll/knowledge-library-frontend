@@ -114,6 +114,7 @@ import { resourceNames } from './labels'
 import { ElMessage, ElMessageBox } from 'element-plus'
 const props = defineProps({
   type: { type: String, required: true },
+  defaultQuery: { type: Object, default: () => ({}) },
   actionWidth: { type: Number, default: 260 }
 })
 defineEmits(['add', 'detail', 'edit'])
@@ -123,7 +124,7 @@ const rows = ref([]),
   error = ref(''),
   showSearch = ref(true),
   selection = ref([])
-const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', expand: true })
+const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', ...(props.type === 'question' ? { expand:true } : {}), ...props.defaultQuery })
 let generation = 0
 async function load() {
   const ticket = ++generation
@@ -131,7 +132,8 @@ async function load() {
   error.value = ''
   try {
     const result = await listRecords(props.type, {
-      ...query,
+      ...Object.fromEntries(Object.entries(query).filter(([, value]) => value !== '')),
+      keyword: undefined,
       title: props.type !== 'kp' ? query.keyword : undefined,
       name: props.type === 'kp' ? query.keyword : undefined
     })
@@ -158,7 +160,8 @@ function reset() {
     if (!['pageNum', 'pageSize'].includes(key)) query[key] = undefined
   })
   query.keyword = ''
-  query.expand = true
+  if (props.type === 'question') query.expand = true
+  Object.assign(query, props.defaultQuery)
   search()
 }
 async function remove(row) {
@@ -180,7 +183,17 @@ async function remove(row) {
   }
 }
 onMounted(load)
-defineExpose({ reload: load, rows, query })
+// KeepAlive re-entry must refresh records changed on other pages or by imports.
+let activatedOnce = false
+onActivated(() => {
+  if (activatedOnce) load()
+  activatedOnce = true
+})
+function setFilters(filters) {
+  Object.assign(query, filters)
+  search()
+}
+defineExpose({ reload: load, rows, query, setFilters })
 </script>
 <style scoped>
 .resource-toolbar {

@@ -5,17 +5,13 @@
     :value="value"
     :show-value="false"
   />
-  <span v-else>{{ value ? '未知分类' : '未填写' }}</span>
+  <span v-else>{{ label(field, value) }}</span>
 </template>
 <script setup>
+import { loadDictionary, optionLists, label } from './labels'
 const props = defineProps({ field: String, value: [String, Number] })
-const type = {
-  subject: 'kb_subject',
-  questionType: 'kb_question_type',
-  difficulty: 'kb_difficulty'
-}[props.field]
-const loaded = useDict(type)
-const options = computed(() => loaded[type]?.value || [])
+watch(() => props.field, loadDictionary, { immediate: true })
+const options = computed(() => optionLists[props.field] || [])
 const matched = computed(() =>
   options.value.some((item) => String(item.value) === String(props.value))
 )

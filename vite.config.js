@@ -42,7 +42,8 @@ export default defineConfig(({ mode, command }) => {
     },
     // vite 相关配置
     server: {
-      port: 80,
+      port: 5173,
+      strictPort: true,
       host: true,
       open: true,
       proxy: {
@@ -50,7 +51,16 @@ export default defineConfig(({ mode, command }) => {
         '/dev-api': {
           target: baseUrl,
           changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/dev-api/, '')
+          rewrite: (p) => p.replace(/^\/dev-api/, ''),
+          configure: (proxy) => {
+            // Development-only request evidence; omit credentials, query and body.
+            proxy.on('proxyRes', (response, request) => {
+              const pathname = (request.url || '').split('?')[0]
+              if (pathname.startsWith('/knowledge/')) {
+                console.info('[knowledge-http]', request.method, pathname, response.statusCode)
+              }
+            })
+          }
         },
          // springdoc proxy
          '^/v3/api-docs/(.*)': {

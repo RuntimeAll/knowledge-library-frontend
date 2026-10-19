@@ -16,6 +16,7 @@
       新增出处
     </el-button>
     <el-button icon="Refresh" @click="load">刷新出处</el-button>
+    <enum-select v-model="collectionKind" field="collectionKind" clearable placeholder="全部收录用途" style="width:170px;margin-left:12px" @update:model-value="pageNum = 1; load()" />
     <el-table
       v-loading="loading"
       :data="rows"
@@ -52,14 +53,15 @@
             {{
               row.isRealExam
                 ? '有效真题出处'
-                : row.stemMatches === false
+                : row.matchedStemHash && row.stemMatches === false
                   ? '题干已变化'
                   : '尚未满足真题条件'
             }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240">
+      <el-table-column label="收录用途" width="120"><template #default="{ row }"><el-tag v-for="item in row.collections || []" :key="item.collectionKind" type="warning">{{ label('collectionKind', item.collectionKind) }}</el-tag><span v-if="!row.collections?.length">普通收录</span></template></el-table-column>
+      <el-table-column label="操作" width="320">
         <template #default="{ row }">
           <el-button
             v-if="!sourceId"
@@ -70,6 +72,10 @@
           >
             来源原件
           </el-button>
+          <el-button
+            v-hasPermi="['knowledge:source:edit']"
+            link type="primary" @click="editCollections(row)"
+          >收录用途</el-button>
           <el-button
             v-hasPermi="['knowledge:source:edit']"
             link
@@ -89,6 +95,16 @@
         </template>
       </el-table-column>
     </el-table>
+    <pagination v-show="total > 0" :total="total" v-model:page="pageNum" v-model:limit="pageSize" @pagination="load" />
+    <el-dialog v-model="collectionsOpen" title="出处收录用途" width="700px" append-to-body destroy-on-close>
+      <el-alert title="错题收录属于本次出处。取消收录只解除用途，不删除题目、出处或原件。" type="info" :closable="false" class="mb8" />
+      <el-form label-width="100px" :disabled="savingCollections">
+        <el-form-item label="收录用途"><el-checkbox v-model="wrongCollection">{{ label('collectionKind', 'WRONG_QUESTION') }}</el-checkbox></el-form-item>
+        <el-form-item v-if="wrongCollection" label="说明"><el-input v-model="collectionForm.note" type="textarea" :rows="3" maxlength="2000" /></el-form-item>
+      </el-form>
+      <template v-if="wrongCollection"><p>证据原件（可选）</p><asset-files :model-value="collectionSource.assetIds || []" selectable :removable="false" :selected-id="collectionForm.evidenceAssetId" @selected="collectionForm.evidenceAssetId = $event" /><el-button v-if="collectionForm.evidenceAssetId" link @click="collectionForm.evidenceAssetId = null">取消证据选择</el-button></template>
+      <template #footer><el-button type="primary" :loading="savingCollections" @click="saveCollections">保存收录用途</el-button><el-button @click="collectionsOpen = false">取消</el-button></template>
+    </el-dialog>
     <el-dialog
       v-model="open"
       :title="form.id ? '编辑 / 核实出处' : '新增题目出处'"
@@ -227,6 +243,7 @@ import RecordPicker from './RecordPicker.vue'
 import EnumSelect from './EnumSelect.vue'
 import AssetFiles from './AssetFiles.vue'
 import { label } from './labels'
+import { pickFields } from './catalog'
 import { ElMessage, ElMessageBox } from 'element-plus'
 const props = defineProps({
   questionId: [String, Number],
@@ -247,6 +264,8 @@ const loading = ref(false),
 const evidenceSource = ref({}),
   evidenceUploading = ref(false),
   evidenceLinking = ref(false)
+const pageNum = ref(1), pageSize = ref(10), total = ref(0), collectionKind = ref()
+const collectionsOpen = ref(false), savingCollections = ref(false), collectionForm = ref({}), collectionSource = ref({}), wrongCollection = ref(false), collectionRow = ref({})
 const selectedSourceId = computed(() => props.sourceId || sourceIds.value[0])
 let evidenceGeneration = 0
 watch(
@@ -281,9 +300,11 @@ async function linkEvidence(ids) {
       ...new Set([...(latest.assetIds || []), ...additions].map(String))
     ]
     const saved = await saveRecord('source', {
-      ...latest,
-      attachments: undefined,
-      assetIds
+      ...pickFields(latest, ['id','rowVersion','title','sourceKind','extractionStatus','originUrl','originNote','remark','subject','grade','examType','examYear','schoolName','scopeNote']),
+      attachments: assetIds.flatMap(id => {
+        const existing = (latest.attachments || []).filter(item => String(item.assetId) === String(id))
+        return existing.length ? existing : [{assetId:id,role:'EVIDENCE'}]
+      }).map(item => ({assetId:item.assetId,role:item.role}))
     })
     if (String(sourceId) === String(selectedSourceId.value)) {
       evidenceSource.value = saved.data
@@ -298,23 +319,22 @@ async function linkEvidence(ids) {
     evidenceLinking.value = false
   }
 }
+let listGeneration = 0
 async function load() {
+  const ticket = ++listGeneration
   if (!props.questionId && !props.sourceId) return
   loading.value = true
   try {
-    rows.value =
-      (
-        await knowledgeRequest(
-          props.sourceId
-            ? `/source/${props.sourceId}/occurrences`
-            : `/question/${props.questionId}/occurrences`
-        )
-      ).data || []
+    const response = await knowledgeRequest('/occurrence/list', 'get', undefined, { questionId:props.questionId, sourceId:props.sourceId, collectionKind:collectionKind.value, pageNum:pageNum.value, pageSize:pageSize.value })
+    if (ticket !== listGeneration) return
+    rows.value = response.rows || []
+    total.value = Number(response.total || 0)
+    if (!rows.value.length && total.value && pageNum.value > 1) { pageNum.value--; await load() }
   } finally {
-    loading.value = false
+    if (ticket === listGeneration) loading.value = false
   }
 }
-watch(() => [props.questionId, props.sourceId], load, { immediate: true })
+watch(() => [props.questionId, props.sourceId], () => { pageNum.value = 1; load() }, { immediate: true })
 function edit(row) {
   form.value = row
     ? { ...row }
@@ -340,7 +360,7 @@ async function save() {
       '/source/occurrence',
       form.value.id ? 'put' : 'post',
       {
-        ...form.value,
+        ...pickFields(form.value, ['id','rowVersion','questionNo','pageFrom','pageTo','score','matchStatus','verificationNote']),
         sourceId,
         questionId,
         evidenceAssetId: evidenceIds.value[0] || null
@@ -373,6 +393,26 @@ defineExpose({ reload: load })
 async function showOriginals(row) {
   originalSource.value = (await getRecord('source', row.sourceId)).data
   originalsOpen.value = true
+}
+async function editCollections(row) {
+  collectionRow.value = row
+  const existing = row.collections?.find(item => item.collectionKind === 'WRONG_QUESTION')
+  wrongCollection.value = !!existing
+  collectionForm.value = { note:existing?.note || '', evidenceAssetId:existing?.evidenceAssetId || null }
+  collectionSource.value = (await getRecord('source', row.sourceId)).data
+  collectionsOpen.value = true
+}
+async function saveCollections() {
+  savingCollections.value = true
+  try {
+    const collections = (collectionRow.value.collections || []).filter(item => item.collectionKind !== 'WRONG_QUESTION').map(item => pickFields(item, ['collectionKind','note','evidenceAssetId']))
+    if (wrongCollection.value) collections.push({ collectionKind:'WRONG_QUESTION', ...collectionForm.value })
+    await knowledgeRequest(`/occurrence/${collectionRow.value.id}/collections`, 'put', { rowVersion:collectionRow.value.rowVersion, collections })
+    collectionsOpen.value = false
+    ElMessage.success('收录用途已保存')
+    await load()
+    emit('changed')
+  } finally { savingCollections.value = false }
 }
 </script>
 <style scoped>

@@ -1,0 +1,18 @@
+import request from '@/utils/request'
+
+const api = (url, method = 'get', data, params) => request({ url: `/knowledge${url}`, method, data, params })
+export const listExperiences = params => api('/experiences', 'get', undefined, params)
+export const getExperience = id => api(`/experiences/${id}`)
+export const saveExperience = data => api('/experiences', data.id ? 'put' : 'post', data)
+export const removeExperience = id => api(`/experiences/${id}`, 'delete')
+export const listExperienceVersions = (id, params) => api(`/experiences/${id}/versions`, 'get', undefined, params)
+export const getExperienceVersion = id => api(`/experience-versions/${id}`)
+export const getTemplateOptions = () => api('/experience-versions/options')
+export const saveExperienceVersion = (experienceId, data) => api(data.id ? `/experience-versions/${data.id}` : `/experiences/${experienceId}/versions`, data.id ? 'put' : 'post', data)
+export const publishExperienceVersion = (id, rowVersion) => api(`/experience-versions/${id}/publish`, 'post', { rowVersion })
+export const validateRender = data => request({ url: '/knowledge/render/validate', method: 'post', data, headers: { repeatSubmit: false } })
+export const createRenderJob = data => request({ url: '/knowledge/render/jobs', method: 'post', data, timeout: 120000, headers: { repeatSubmit: false } })
+export const listRenderJobs = params => api('/render/jobs', 'get', undefined, params)
+export const getRenderJob = id => api(`/render/jobs/${id}`)
+export const retryRenderJob = id => request({ url: `/knowledge/render/jobs/${id}/retry`, method: 'post', headers: { repeatSubmit: false } })
+export const getRenderOutputBlob = (id, outputKey, kind = 'pdf') => request({ url: `/knowledge/render/jobs/${id}/outputs/${encodeURIComponent(outputKey)}`, method: 'get', params: { kind }, responseType: 'blob', timeout: 120000 })

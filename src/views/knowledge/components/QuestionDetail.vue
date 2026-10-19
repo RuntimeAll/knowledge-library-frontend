@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     v-model="open"
-    :title="`题目详情 · ${question.title || ''}`"
+    :title="`内容详情 · ${question.title || ''}`"
     size="85%"
     destroy-on-close
   >
@@ -40,6 +40,9 @@
         </el-button>
       </div>
       <el-descriptions :column="3" border>
+        <el-descriptions-item label="内容类型">
+          <classification-tag field="contentKind" :value="question.contentKind" />
+        </el-descriptions-item>
         <el-descriptions-item label="编号">
           {{ question.id }}
         </el-descriptions-item>
@@ -52,7 +55,7 @@
         <el-descriptions-item label="学科">
           <classification-tag field="subject" :value="question.subject" />
         </el-descriptions-item>
-        <el-descriptions-item label="题型">
+        <el-descriptions-item :label="question.contentKind === 'KNOWLEDGE' ? '知识类型' : '题型'">
           <classification-tag
             field="questionType"
             :value="question.questionType"
@@ -61,6 +64,12 @@
         <el-descriptions-item label="难度">
           <classification-tag field="difficulty" :value="question.difficulty" />
         </el-descriptions-item>
+        <el-descriptions-item label="呈现方式">{{ label('layoutMode', question.layoutMode) }}</el-descriptions-item>
+        <el-descriptions-item label="内容单元">
+          {{ label('unitKind', question.unitKind) }}<span v-if="question.unitKind === 'GROUP'"> · {{ question.itemCount }} 项（整体复用）</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="分页方式">{{ label('paginationMode', question.paginationMode) }}</el-descriptions-item>
+        <el-descriptions-item v-if="question.layoutNote" label="排版说明" :span="3">{{ question.layoutNote }}</el-descriptions-item>
         <el-descriptions-item label="真题身份">
           <el-tag :type="question.isRealExam ? 'success' : 'info'">
             {{ question.isRealExam ? '当前有效真题' : '当前无有效真题证明' }}
@@ -73,6 +82,19 @@
           <relation-names type="kp" :ids="question.kpIds" />
         </el-descriptions-item>
       </el-descriptions>
+      <el-alert v-if="queryMatchReasons.length" :title="`本次查询命中：${queryMatchReasons.join('；')}`" type="info" :closable="false" class="detail-alert" />
+      <template v-for="group in matchedGroups" :key="group.title">
+        <template v-if="group.rows.length">
+          <h4>{{ group.title }}</h4>
+          <el-table :data="group.rows">
+            <el-table-column label="实际来源" min-width="200"><template #default="{ row }"><span v-if="row.sourceTitle">{{ row.sourceTitle }}</span><relation-names v-else type="source" :ids="[row.sourceId]" /></template></el-table-column>
+            <el-table-column label="原题号" prop="questionNo" width="100" />
+            <el-table-column label="页码" width="120"><template #default="{ row }">{{ row.pageFrom || '—' }}{{ row.pageTo && row.pageTo !== row.pageFrom ? `～${row.pageTo}` : '' }}</template></el-table-column>
+            <el-table-column label="出处核实" width="130"><template #default="{ row }">{{ label('matchStatus', row.matchStatus) }}</template></el-table-column>
+            <el-table-column label="题面关系" min-width="160"><template #default="{ row }">{{ row.stemMatches === false ? '原题面关系待复核' : '按记录的实际出处追溯' }}</template></el-table-column>
+          </el-table>
+        </template>
+      </template>
       <el-alert
         v-if="question.readinessReasons?.length"
         :title="`待补齐：${question.readinessReasons.join('；')}`"
@@ -81,10 +103,10 @@
         class="detail-alert"
       />
       <el-tabs v-model="tab" class="detail-tabs" @tab-change="tabChanged">
-        <el-tab-pane label="题干 / 答案 / 解析" name="body">
-          <h4>题干（只读）</h4>
-          <html-preview :html="question.stemHtml" />
-          <h4>答案</h4>
+        <el-tab-pane :label="question.contentKind === 'KNOWLEDGE' ? '知识内容 / 说明' : '题干 / 答案 / 解析'" name="body">
+          <h4>{{ question.contentKind === 'KNOWLEDGE' ? '知识内容（只读）' : '题干（只读）' }}</h4>
+          <html-preview :html="question.stemHtml" :layout-mode="question.layoutMode" :pagination-mode="question.paginationMode" />
+          <h4>{{ question.contentKind === 'KNOWLEDGE' ? '知识说明' : '答案' }}</h4>
           <html-preview :html="question.answerHtml" answer />
           <h4>解析</h4>
           <html-preview :html="question.analysisHtml" answer />
@@ -198,7 +220,16 @@ const open = ref(false),
   importRef = ref(),
   exporting = ref(false)
 const occurrenceRef = ref()
+const queryMatchReasons = ref([])
+const queryOccurrences = ref(null)
+const matchedGroups = computed(() => {
+  const context = queryOccurrences.value || question.value
+  const prefix = queryOccurrences.value ? '本次查询命中' : '当前'
+  return [{ title:`${prefix}的有效真题出处`,rows:context.matchedExamOccurrences || [] }, {title:`${prefix}的错题收录出处`,rows:context.matchedWrongOccurrences || []}]
+})
 async function show(row) {
+  queryMatchReasons.value = row.matchReasons || []
+  queryOccurrences.value = Array.isArray(row.matchedExamOccurrences) || Array.isArray(row.matchedWrongOccurrences) ? { matchedExamOccurrences:row.matchedExamOccurrences || [],matchedWrongOccurrences:row.matchedWrongOccurrences || [] } : null
   question.value = { id: row.id }
   lineage.value = {}
   tab.value = 'body'
@@ -221,6 +252,8 @@ async function tabChanged(name) {
     ).data
 }
 async function changed() {
+  queryMatchReasons.value = []
+  queryOccurrences.value = null
   if (open.value) {
     await reload()
     await occurrenceRef.value?.reload()

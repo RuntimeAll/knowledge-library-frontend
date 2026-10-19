@@ -12,9 +12,12 @@ import renderMathInElement from 'katex/contrib/auto-render'
 import katex from 'katex'
 import katexCss from 'katex/dist/katex.min.css?inline'
 import { knowledgeRequest } from '@/api/knowledge'
+import { questionLayoutCss, cleanPreviewAttributes } from './questionLayout'
 const props = defineProps({
   html: { type: String, default: '' },
-  answer: { type: Boolean, default: false }
+  answer: { type: Boolean, default: false },
+  layoutMode: { type: String, default: 'PLAIN' },
+  paginationMode: { type: String, default: 'FLOW' }
 })
 const resolvedHtml = ref('')
 let generation = 0
@@ -50,13 +53,9 @@ const documentHtml = computed(() => {
   // Detached markup is never mounted into the app. The iframe also disables scripts/forms.
   container.innerHTML = resolvedHtml.value || '<p>暂无内容</p>'
   container
-    .querySelectorAll('script,iframe,object,embed,form,meta,base')
+    .querySelectorAll('script,iframe,object,embed,form,meta,base,style,link,foreignObject,animate,animateTransform,set,video,audio,source,input,textarea,button,select')
     .forEach((node) => node.remove())
-  container.querySelectorAll('*').forEach((node) =>
-    [...node.attributes].forEach((attribute) => {
-      if (/^on/i.test(attribute.name)) node.removeAttribute(attribute.name)
-    })
-  )
+  cleanPreviewAttributes(container)
   container.querySelectorAll('[data-latex]').forEach((node) => {
     katex.render(node.dataset.latex || '', node, {
       throwOnError: false,
@@ -72,7 +71,9 @@ const documentHtml = computed(() => {
     ],
     throwOnError: false
   })
-  return `<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${katexCss} body{font:16px/1.7 Arial,'Microsoft YaHei',sans-serif;color:${props.answer ? '#d03030' : '#222'};padding:16px;margin:0;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #aaa;padding:6px}pre{white-space:pre-wrap}</style></head><body>${container.innerHTML}</body></html>`
+  const layoutMode = ['PLAIN', 'STRUCTURED'].includes(props.layoutMode) ? props.layoutMode : 'PLAIN'
+  const paginationMode = ['FLOW', 'KEEP_TOGETHER', 'ALLOW_SPLIT'].includes(props.paginationMode) ? props.paginationMode : 'FLOW'
+  return `<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${katexCss} body{font:16px/1.7 Arial,'Microsoft YaHei',sans-serif;color:${props.answer ? '#d03030' : '#222'};padding:16px;margin:0;overflow-wrap:anywhere}img,svg{max-width:100%;height:auto}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #aaa;padding:6px}pre{white-space:pre-wrap}${questionLayoutCss}</style></head><body><article data-layout-mode="${layoutMode}" data-pagination-mode="${paginationMode}">${container.innerHTML}</article></body></html>`
 })
 </script>
 <style scoped>

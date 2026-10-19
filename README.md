@@ -1,3 +1,16 @@
+# 教学资料库管理端
+
+数学与科学教学资料库的 Vue3 管理端，基于若依扩展。
+
+- 本仓库：[knowledge-library-frontend](https://github.com/RuntimeAll/knowledge-library-frontend)
+- 配套后端：[knowledge-library-server](https://github.com/RuntimeAll/knowledge-library-server)
+- 在本仓库执行 `npm ci` 安装锁定依赖，`npm run dev -- --port 5173 --strictPort` 启动，`npm run build:prod` 构建。
+- 开发代理对接本机后端8080，实际配置见 `vite.config.js`。工作区 `tools/start-frontend.ps1` 和 `tools/build-frontend.ps1` 提供已安装 Node 运行时选择。
+- 环境文件只保存公开的页面/API路径配置；真实凭据、依赖安装目录和构建产物不提交。
+- 本次初始化保留现有框架与业务代码历史，不代表云端部署或用户业务终审。
+
+以下保留原若依框架说明及来源。
+
 <p align="center">
 	<img alt="logo" src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png">
 </p>

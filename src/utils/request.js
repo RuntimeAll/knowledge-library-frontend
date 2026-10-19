@@ -103,7 +103,9 @@ service.interceptors.response.use(res => {
       return Promise.reject(new Error(msg))
     } else if (code !== 200) {
       ElNotification.error({ title: msg })
-      return Promise.reject('error')
+      // Keep business rejection codes so idempotent workflows can distinguish
+      // a confirmed validation/conflict response from an unknown network result.
+      return Promise.reject(Object.assign(new Error(msg), { code }))
     } else {
       return  Promise.resolve(res.data)
     }

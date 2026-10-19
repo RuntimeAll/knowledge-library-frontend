@@ -13,7 +13,7 @@
           ? '上传本地修改后的标准 HTML，保留题目编号和行版本；版本冲突会拒绝覆盖。'
           : mode === 'derive'
             ? '变式会新建独立题目并关联母题，不继承母题的已核实真题身份。'
-            : '题目正文由本地 HTML 导入；页面仅编辑分类与关联元数据。支持同一文件批量导入。'
+            : '此窗口接收标准 HTML 文件，可批量导入。Agent 也可通过统一 JSON 接口录入；页面可编辑分类与关联元数据。'
       "
       type="info"
       :closable="false"
@@ -57,6 +57,12 @@
           mode === 'derive' ? '变式' : mode === 'update' ? '更新' : '新建'
         }}模板
       </el-button>
+      <el-dropdown v-if="mode === 'create'" @command="downloadExample">
+        <el-button plain>下载结构示例 <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+        <template #dropdown>
+          <el-dropdown-menu><el-dropdown-item v-for="example in exchangeExamples" :key="example.key" :command="example.key">{{ example.label }}</el-dropdown-item></el-dropdown-menu>
+        </template>
+      </el-dropdown>
       <el-button
         v-if="question?.id"
         v-hasPermi="['knowledge:question:export']"
@@ -68,6 +74,30 @@
       </el-button>
     </div>
     <el-form label-width="110px" :disabled="busy">
+      <el-collapse class="mb8">
+        <el-collapse-item title="下载模板的分类、考点与排版" name="metadata">
+          <el-form-item label="内容类型">
+            <enum-select v-model="templateMeta.contentKind" field="contentKind" @update:model-value="changeTemplateKind" />
+          </el-form-item>
+          <el-form-item label="学科">
+            <enum-select v-model="templateMeta.subject" field="subject" clearable />
+          </el-form-item>
+          <el-form-item :label="templateMeta.contentKind === 'KNOWLEDGE' ? '知识类型' : '题型'">
+            <enum-select v-model="templateMeta.questionType" field="questionType" clearable
+              :include-values="templateMeta.contentKind === 'KNOWLEDGE' ? knowledgeTypes : null"
+              :exclude-values="templateMeta.contentKind === 'EXERCISE' ? knowledgeTypes : []" />
+          </el-form-item>
+          <el-form-item label="考点">
+            <record-picker v-model="templateMeta.kpIds" type="kp" :filters="{ subject: templateMeta.subject || undefined }" />
+          </el-form-item>
+          <el-form-item label="呈现方式"><enum-select v-model="templateMeta.layoutMode" field="layoutMode" /></el-form-item>
+          <el-form-item label="内容单元"><enum-select v-model="templateMeta.unitKind" field="unitKind" /></el-form-item>
+          <el-form-item label="分页方式"><enum-select v-model="templateMeta.paginationMode" field="paginationMode" /></el-form-item>
+          <el-form-item label="排版说明"><el-input v-model="templateMeta.layoutNote" type="textarea" :rows="2" maxlength="2000" show-word-limit /></el-form-item>
+          <p class="form-hint">10 道口算可放在同一组合内容中，整体检索和复用，不会拆成 10 条题库记录。条目数由正文结构计算；选择题选项支持单独的 HTML 区域。</p>
+          <p class="form-hint">这些选项写入下载的模板。实际导入以 HTML 内逐条元数据为准；不会覆盖已选文件中的分类。</p>
+        </el-collapse-item>
+      </el-collapse>
       <template v-if="mode === 'derive'">
         <el-divider content-position="left">变式模板说明</el-divider>
         <el-form-item label="变式操作">
@@ -151,6 +181,19 @@
       class="mb8"
     />
     <el-collapse v-if="previewHtml">
+      <el-collapse-item :title="`本地内容元数据（${previewMetadata.length} 条）`" name="metadata-preview">
+        <el-table :data="previewMetadata" max-height="300">
+          <el-table-column label="内容名称" prop="title" min-width="200" />
+          <el-table-column label="内容类型" width="130"><template #default="{ row }">{{ metadataLabel('contentKind', row) }}</template></el-table-column>
+          <el-table-column label="学科" width="100"><template #default="{ row }">{{ metadataLabel('subject', row) }}</template></el-table-column>
+          <el-table-column label="题型 / 知识类型" width="150"><template #default="{ row }">{{ metadataLabel('questionType', row) }}</template></el-table-column>
+          <el-table-column label="内容单元" width="120"><template #default="{ row }">{{ metadataLabel('unitKind', row) }}</template></el-table-column>
+          <el-table-column label="呈现方式" width="120"><template #default="{ row }">{{ metadataLabel('layoutMode', row) }}</template></el-table-column>
+          <el-table-column label="分页方式" width="130"><template #default="{ row }">{{ metadataLabel('paginationMode', row) }}</template></el-table-column>
+          <el-table-column label="排版说明" prop="layoutNote" min-width="180" show-overflow-tooltip />
+          <el-table-column label="考点" min-width="180"><template #default="{ row }"><relation-names v-if="row.kpIds" type="kp" :ids="row.kpIds" /><span v-else>{{ row.intent === 'update' ? '保留线上考点' : '待补充考点' }}</span></template></el-table-column>
+        </el-table>
+      </el-collapse-item>
       <el-collapse-item title="本地题干预览（上传前核对）">
         <html-preview :html="previewHtml" />
       </el-collapse-item>
@@ -218,7 +261,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            {{ statusLabel[row.status] || '处理中' }}
+            {{ label('importItemStatus', row.status) }}
           </template>
         </el-table-column>
         <el-table-column label="题目编号" prop="questionId" width="100" />
@@ -265,10 +308,29 @@ import {
   resumeImport
 } from '@/api/knowledge'
 import RecordPicker from './RecordPicker.vue'
+import RelationNames from './RelationNames.vue'
 import EnumSelect from './EnumSelect.vue'
 import HtmlPreview from './HtmlPreview.vue'
+import { label } from './labels'
+import { questionLayoutCss } from './questionLayout'
+import { exchangeExamples } from './exchangeExamples'
 import { ElMessage } from 'element-plus'
 const emit = defineEmits(['completed'])
+const knowledgeTypes = ['KNOWLEDGE_REVIEW', 'KNOWLEDGE_EXPLANATION']
+const templateMeta = reactive({ contentKind: 'EXERCISE', subject: '', questionType: '', kpIds: [], layoutMode: 'PLAIN', unitKind: 'SINGLE', paginationMode: 'FLOW', layoutNote: '' })
+const previewMetadata = ref([])
+function changeTemplateKind(value) {
+  if (value === 'KNOWLEDGE' && !knowledgeTypes.includes(templateMeta.questionType)) templateMeta.questionType = 'KNOWLEDGE_REVIEW'
+  if (value === 'EXERCISE' && knowledgeTypes.includes(templateMeta.questionType)) templateMeta.questionType = ''
+}
+function metadataLabel(field, row) {
+  if (row[field]) return label(field, row[field])
+  if (row.intent === 'update') return '保留线上值'
+  if (field === 'contentKind') return label('contentKind', 'EXERCISE')
+  const defaults = { layoutMode: 'PLAIN', unitKind: 'SINGLE', paginationMode: 'FLOW' }
+  if (defaults[field]) return label(field, defaults[field])
+  return '待补充'
+}
 const derivation = reactive({
   operation: 'OTHER',
   changeNote: '',
@@ -312,7 +374,7 @@ const leaseActive = computed(
 )
 const recoveryNotice = computed(() => {
   if (result.value?.status === 'RECEIVING')
-    return '原 HTML 或配套资源尚未接收完整。请选择原 HTML 与全部原资源，保留原提交标识重新上传；此状态不能直接恢复处理。'
+    return '原输入尚未接收完整。请使用原提交入口重传相同请求，保留原提交标识和全部资源；此状态不能直接恢复处理。'
   if (result.value?.status === 'PROCESSING')
     return !result.value.inputReady
       ? '输入文件尚未准备完整，请补传原文件后重试。'
@@ -320,16 +382,10 @@ const recoveryNotice = computed(() => {
         ? '当前批次仍在执行，请稍后刷新结果；处理占用期间不能重复恢复。'
         : '输入文件已完整接收，处理占用已过期。可恢复尚未完成的题目，已有成功结果会保留。'
   if (['PARTIAL', 'FAILED'].includes(result.value?.status))
-    return '本批次结果已固定。失败题目请修正 HTML 后使用新的提交标识上传，已有成功题目不会因刷新结果重复创建。'
+    return '本批次结果已固定。失败内容请修正后使用新的提交标识重新导入，已有成功内容不会因刷新结果重复创建。'
   return ''
 })
-const intentLabel = { create: '新建', update: '更新原题', derive: '新建变式' },
-  statusLabel = {
-    SUCCESS: '成功',
-    REUSED: '已复用',
-    FAILED: '失败',
-    PROCESSING: '处理中'
-  }
+const intentLabel = { create: '新建', update: '更新原题', derive: '新建变式' }
 const dialogTitle = computed(() =>
   mode.value === 'derive'
     ? '上传 HTML 新建变式'
@@ -339,7 +395,7 @@ const dialogTitle = computed(() =>
 )
 const resultTitle = computed(
   () =>
-    `${result.value.status === 'SUCCESS' ? '导入成功' : result.value.status === 'FAILED' ? '导入失败' : result.value.status === 'PARTIAL' ? '部分导入成功，请逐项核对' : result.value.status === 'RECEIVING' ? '等待补传原文件' : '正在处理'}：成功 ${result.value.successCount || 0}，失败 ${result.value.failureCount || 0}`
+    `${label('importStatus', result.value.status)}：成功 ${result.value.successCount || 0}，失败 ${result.value.failureCount || 0}`
 )
 const newKey = () =>
   globalThis.crypto?.randomUUID?.() ||
@@ -354,6 +410,8 @@ async function show(intent = 'create', record = null) {
   mode.value = intent
   question.value = record
   sourceIds.value = []
+  Object.assign(templateMeta, { contentKind: question.value?.contentKind || 'EXERCISE', subject: question.value?.subject || '', questionType: question.value?.questionType || '', kpIds: [...(question.value?.kpIds || [])], layoutMode: question.value?.layoutMode || 'PLAIN', unitKind: question.value?.unitKind || 'SINGLE', paginationMode: question.value?.paginationMode || 'FLOW', layoutNote: question.value?.layoutNote || '' })
+  previewMetadata.value = []
   htmlFiles.value = []
   htmlFile.value = null
   resourceFiles.value = []
@@ -381,6 +439,7 @@ function clearHtml() {
   previewHtml.value = ''
   preflightError.value = ''
   result.value = null
+  previewMetadata.value = []
 }
 async function selectHtml(item) {
   const originalKey =
@@ -410,6 +469,14 @@ async function selectHtml(item) {
     return
   }
   for (const article of articles) {
+    let metadata
+    try {
+      metadata = JSON.parse(article.querySelector('script[data-kb-metadata]')?.textContent || '{}')
+    } catch {
+      preflightError.value = '内容元数据 JSON 格式错误，请检查 data-kb-metadata 区域'
+      return
+    }
+    previewMetadata.value.push({ ...metadata, title: metadata.title || article.dataset.clientKey, intent: article.dataset.intent })
     if (
       !article.dataset.clientKey ||
       !['create', 'update', 'derive'].includes(article.dataset.intent)
@@ -448,11 +515,11 @@ async function selectHtml(item) {
     }
   }
   previewHtml.value = articles
-    .map(
-      (article) =>
-        article.querySelector('[data-part="stem"]')?.innerHTML ||
-        '<p>缺少题干区域</p>'
-    )
+    .map(article => {
+      const stem = article.querySelector(':scope > [data-part="stem"]')?.innerHTML || '<p>缺少题干区域</p>'
+      const options = article.querySelector(':scope > [data-part="options"]')
+      return stem + (options ? `<div data-kb-role="options">${options.innerHTML}</div>` : '')
+    })
     .join('<hr>')
 }
 function escapeAttribute(value) {
@@ -467,10 +534,15 @@ function downloadTemplate() {
   const q = question.value || {},
     metadata = {
       title: q.title || '请填写题目名称',
-      subject: q.subject || '',
-      questionType: q.questionType || '',
+      contentKind: templateMeta.contentKind,
+      subject: templateMeta.subject || '',
+      questionType: templateMeta.questionType || '',
       difficulty: q.difficulty || '',
-      kpIds: q.kpIds || [],
+      layoutMode: templateMeta.layoutMode,
+      unitKind: templateMeta.unitKind,
+      paginationMode: templateMeta.paginationMode,
+      layoutNote: templateMeta.layoutNote,
+      kpIds: templateMeta.kpIds || [],
       sourceNote: q.sourceNote || ''
     }
   if (mode.value === 'derive')
@@ -486,12 +558,28 @@ function downloadTemplate() {
       : mode.value === 'derive'
         ? ` data-parent-id="${escapeAttribute(q.id)}"`
         : ''
-  const json = JSON.stringify(metadata, null, 2).replaceAll('<', '\\u003c')
-  const html = `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="kb-schema" content="kb-question-html/v1"><meta name="kb-origin" content="${escapeAttribute(instanceId.value)}"><title>题目交换模板</title><style>body{font:16px/1.8 sans-serif}section[data-part=answer],section[data-part=analysis]{color:red}table,td,th{border:1px solid black;border-collapse:collapse}</style></head><body>\n<article data-client-key="${mode.value === 'update' ? `question-${q.id}` : newKey()}" data-intent="${mode.value}"${attrs}>\n<script type="application/json" data-kb-metadata>${json}<\/script>\n<section data-part="stem">${q.stemHtml || '<p>请在本地填写题干，图片与此文件一同上传。</p>'}</section>\n<section data-part="answer">${q.answerHtml || '<p>请在本地填写答案。</p>'}</section>\n<section data-part="analysis">${q.analysisHtml || ''}</section>\n</article></body></html>`
+  const group = '<div data-kb-role="group" data-columns="2"><div data-item-key="1"><p>（1）请填写第 1 项。</p></div><div data-item-key="2"><p>（2）请填写第 2 项。</p></div></div>'
+  const parts = {
+    stem: q.stemHtml || (templateMeta.unitKind === 'GROUP' ? group : '<p>请在本地填写题干，图片与此文件一同上传。</p>'),
+    answer: q.answerHtml || (templateMeta.unitKind === 'GROUP' ? group : '<p>请在本地填写答案。</p>'),
+    analysis: q.analysisHtml || ''
+  }
+  const html = buildExchangeHtml(metadata, parts, mode.value, mode.value === 'update' ? `question-${q.id}` : newKey(), attrs)
   saveAs(
     new Blob([html], { type: 'text/html;charset=utf-8' }),
     `${intentLabel[mode.value]}模板.html`
   )
+}
+function buildExchangeHtml(metadata, parts, intent = 'create', clientKey = newKey(), attrs = '') {
+  const json = JSON.stringify(metadata, null, 2).replaceAll('<', '\\u003c')
+  const options = parts.options ? `\n<section data-part="options">${parts.options}</section>` : ''
+  return `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="kb-schema" content="kb-question-html/v1"><meta name="kb-origin" content="${escapeAttribute(instanceId.value)}"><title>题目交换模板</title><style>body{font:16px/1.8 sans-serif}section[data-part=answer],section[data-part=analysis]{color:red}table,td,th{border:1px solid black;border-collapse:collapse}svg,img{max-width:100%;height:auto}${questionLayoutCss}section[data-part=options]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px}</style></head><body>\n<article data-client-key="${escapeAttribute(clientKey)}" data-intent="${intent}" data-pagination-mode="${escapeAttribute(metadata.paginationMode || 'FLOW')}"${attrs}>\n<script type="application/json" data-kb-metadata>${json}<\/script>\n<section data-part="stem">${parts.stem}</section>${options}\n<section data-part="answer">${parts.answer || ''}</section>\n<section data-part="analysis">${parts.analysis || ''}</section>\n</article></body></html>`
+}
+function downloadExample(key) {
+  const example = exchangeExamples.find(item => item.key === key)
+  if (!example) return
+  saveAs(new Blob([buildExchangeHtml(example.metadata, example)], { type: 'text/html;charset=utf-8' }), `${example.label}-结构示例.html`)
+  ElMessage.info('已下载结构示例；请按实际内容修改正文并补充关联考点后导入。')
 }
 async function exportOriginal() {
   exporting.value = true

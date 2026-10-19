@@ -56,8 +56,9 @@
           </el-button>
           <el-button
             v-if="
-              /image|pdf|html/.test(row.contentType || '') ||
-              /\.html?$/i.test(row.originalName || '')
+              (/image|pdf|html/.test(row.contentType || '') ||
+              /\.(pdf|html?)$/i.test(row.originalName || '')) &&
+              (!isPdf(row) || checkPermi(['knowledge:asset:download']))
             "
             v-hasPermi="['knowledge:asset:query']"
             link
@@ -103,7 +104,9 @@
         type="info"
         :closable="false"
       />
+      <pdf-preview v-if="previewPdf && previewOpen" :asset-id="previewAsset.assetId" />
       <iframe
+        v-else
         :src="previewUrl"
         class="asset-preview"
         :sandbox="previewHtml ? '' : 'allow-same-origin'"
@@ -111,6 +114,7 @@
         title="原件预览"
       />
       <template #footer>
+        <el-button v-if="previewAsset" v-hasPermi="['knowledge:asset:download']" type="primary" plain @click="download(previewAsset)">下载原件</el-button>
         <el-button @click="previewOpen = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -124,6 +128,9 @@ import {
   getAssetBlob
 } from '@/api/knowledge'
 import { ElMessage } from 'element-plus'
+import { defineAsyncComponent } from 'vue'
+import { checkPermi } from '@/utils/permission'
+const PdfPreview = defineAsyncComponent(() => import('./PdfPreview.vue'))
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   purpose: { type: String, default: 'SOURCE_ORIGINAL' },
@@ -146,7 +153,9 @@ const assets = ref([]),
   uploading = ref(false),
   previewOpen = ref(false),
   previewUrl = ref(''),
-  previewHtml = ref(false)
+  previewHtml = ref(false),
+  previewPdf = ref(false),
+  previewAsset = ref(null)
 let generation = 0
 watch(uploading, (value) => emit('busy', value))
 watch(
@@ -218,15 +227,25 @@ function releasePreview() {
   if (previewUrl.value.startsWith('blob:'))
     URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
+  previewAsset.value = null
+  previewPdf.value = false
 }
 onBeforeUnmount(releasePreview)
+function isPdf(row) {
+  return /pdf/i.test(row.contentType || '') || /\.pdf$/i.test(row.originalName || '')
+}
 async function preview(row) {
   try {
     releasePreview()
+    previewAsset.value = row
+    previewPdf.value = isPdf(row)
     previewHtml.value =
       /html/.test(row.contentType || '') ||
       /\.html?$/i.test(row.originalName || '')
-    if (previewHtml.value) {
+    if (previewPdf.value) {
+      previewOpen.value = true
+      return
+    } else if (previewHtml.value) {
       const blob = await getAssetBlob(row.assetId)
       if (blob.type?.includes('json')) {
         const error = JSON.parse(await blob.text())

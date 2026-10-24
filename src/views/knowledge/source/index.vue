@@ -49,7 +49,7 @@
       <template #footer><el-button v-if="!readonly" type="primary" :loading="saving" :disabled="uploading" @click="save">保存来源</el-button><el-button @click="open = false">{{ readonly ? '关闭' : '取消' }}</el-button></template>
     </el-dialog>
     <el-dialog v-model="verificationOpen" title="核实考试原卷身份" width="750px" append-to-body destroy-on-close>
-      <el-alert title="只有明确的实际考试原卷及有效证据才能核实为真题来源；修改身份事实后需要重新核实。" type="info" :closable="false" class="mb8" />
+      <el-alert title="实际校内考试也属于真题。依据原卷、作答或批改材料核实；未知年份可待补，修改考试身份事实后需要重新核实。" type="info" :closable="false" class="mb8" />
       <el-form label-width="110px" :disabled="verifying">
         <el-form-item label="核实结果"><enum-select v-model="verification.authenticityStatus" field="authenticityStatus" /></el-form-item>
         <el-form-item label="核实说明"><el-input v-model="verification.verificationNote" type="textarea" :rows="4" maxlength="20000" /></el-form-item>

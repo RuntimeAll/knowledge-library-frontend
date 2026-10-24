@@ -5,6 +5,8 @@ export const listRecords = (type, params) =>
   request({ url: `/knowledge/${type}/list`, method: 'get', params })
 export const getRecord = (type, id) =>
   request({ url: `/knowledge/${type}/${id}`, method: 'get' })
+export const getKpNames = (ids) =>
+  request({ url: '/knowledge/kp/names', method: 'get', params: { ids: ids.join(',') } })
 export const saveRecord = (type, data) =>
   request({ url: `/knowledge/${type}`, method: data.id ? 'put' : 'post', data })
 export const deleteRecord = (type, id) =>

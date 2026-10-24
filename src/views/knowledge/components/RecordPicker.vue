@@ -99,6 +99,7 @@
 </template>
 <script setup>
 import { listRecords, getRecord } from '@/api/knowledge'
+import { getReferenceRecord } from '@/api/knowledge/reference-requests'
 import { resourceNames, label } from './labels'
 import { formContextKey } from 'element-plus'
 const props = defineProps({
@@ -129,7 +130,7 @@ watch(
       (ids || []).map(
         async (id) =>
           selected.value.find((item) => String(item.id) === String(id)) ||
-          (await getRecord(props.type, id)
+          (await (props.type === 'outline' ? getReferenceRecord(props.type, id) : getRecord(props.type, id))
             .then((r) => r.data)
             .catch(() => ({ id, title: `编号 ${id}（无法读取）` })))
       )

@@ -3,6 +3,7 @@
     <resource-list
       ref="listRef"
       type="question"
+      :initial-query="routeScope"
       :action-width="340"
       @add="importRef.show('create')"
       @edit="(row) => editorRef.show(row)"
@@ -215,12 +216,12 @@ const listRef = ref(),
   importRef = ref(),
   exporting = ref(false)
 const route = useRoute()
+const routeScope = computed(() => ({ outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined }))
 function syncScope() {
   if (route.path !== '/knowledge/question') return
-  listRef.value?.setFilters({ outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined })
+  listRef.value?.setFilters(routeScope.value)
 }
 watch(() => [route.path, route.query.outlineId, route.query.outlineNodeId], syncScope)
-onMounted(syncScope)
 async function updateHtml(row) {
   importRef.value.show('update', (await getRecord('question', row.id)).data)
 }

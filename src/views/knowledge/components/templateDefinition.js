@@ -13,7 +13,7 @@ export function defaultTemplate() {
       css: 'h1 { text-align: center; font-size: 20pt; }\nheader { margin-bottom: 8mm; }',
       page: { size: 'A4', orientation: 'portrait', marginTopMm: 15, marginRightMm: 15, marginBottomMm: 15, marginLeftMm: 15, fontSizePt: 12, lineHeight: 1.5, columns: 1, questionGapMm: 5, answerSpaceMm: 16 },
       organization: { sectionPageBreak: false, dayPageBreak: false, numbering: 'CONTINUOUS' },
-      content: { optionColumns: 1, showAnalysis: false, imageMaxWidthPercent: 100 }
+      content: { optionLayout: 'FIXED', optionColumns: 1, showAnalysis: false, imageMaxWidthPercent: 100 }
     }
   }
 }

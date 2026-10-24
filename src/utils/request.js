@@ -12,12 +12,14 @@ let downloadLoadingInstance
 export let isRelogin = { show: false }
 
 axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
+const configuredTimeout = Number(import.meta.env.VITE_APP_REQUEST_TIMEOUT)
+const requestTimeout = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 10000
 // 创建axios实例
 const service = axios.create({
   // axios中请求配置有baseURL选项，表示请求URL公共部分
   baseURL: import.meta.env.VITE_APP_BASE_API,
   // 超时
-  timeout: 10000
+  timeout: requestTimeout
 })
 
 // request拦截器

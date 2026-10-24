@@ -19,7 +19,8 @@
             <el-col :span="12"><el-form-item label="分栏"><el-input-number v-model="form.definition.page.columns" :min="1" :max="3" /></el-form-item></el-col>
             <el-col :span="12"><el-form-item label="题目间距"><el-input-number v-model="form.definition.page.questionGapMm" :min="0" :max="30" /> 毫米</el-form-item></el-col>
             <el-col :span="12"><el-form-item label="作答留白"><el-input-number v-model="form.definition.page.answerSpaceMm" :min="0" :max="150" /> 毫米</el-form-item></el-col>
-            <el-col :span="12"><el-form-item label="选项列数"><el-input-number v-model="form.definition.content.optionColumns" :min="1" :max="4" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="选项布局"><el-select v-model="form.definition.content.optionLayout"><el-option label="自动适配（4、2、1列）" value="AUTO" /><el-option label="固定列数" value="FIXED" /></el-select></el-form-item></el-col>
+            <el-col v-if="form.definition.content.optionLayout !== 'AUTO'" :span="12"><el-form-item label="选项列数"><el-input-number v-model="form.definition.content.optionColumns" :min="1" :max="4" /></el-form-item></el-col>
             <el-col :span="12"><el-form-item label="图片最大宽度"><el-input-number v-model="form.definition.content.imageMaxWidthPercent" :min="10" :max="100" /> %</el-form-item></el-col>
             <el-col :span="12"><el-form-item label="题号规则"><el-select v-model="form.definition.organization.numbering"><el-option label="全文连续编号" value="CONTINUOUS" /><el-option label="每栏重新编号" value="SECTION" /></el-select></el-form-item></el-col>
           </el-row>
@@ -60,6 +61,7 @@ async function show(id, version, copy = false) {
   experienceId = id
   const current = version?.id ? (await getExperienceVersion(version.id)).data : defaultTemplate()
   form.value = structuredClone(current)
+  form.value.definition.content.optionLayout ??= 'FIXED'
   if (copy) { delete form.value.id; delete form.value.rowVersion; delete form.value.versionNo; form.value.changeNote = `基于第 ${current.versionNo} 版调整`; form.value.status = 'DRAFT' }
   readonly.value = !checkPermi(['knowledge:experience:edit']) || (!!form.value.id && form.value.status !== 'DRAFT')
   activeTab.value = 'layout'; previewPanels.value = []

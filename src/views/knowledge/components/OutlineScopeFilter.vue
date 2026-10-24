@@ -11,7 +11,7 @@
 </template>
 <script setup>
 import RecordPicker from './RecordPicker.vue'
-import { getRecord } from '@/api/knowledge'
+import { getReferenceRecord } from '@/api/knowledge/reference-requests'
 const props = defineProps({ outlineId: [Number, String], outlineNodeId: [Number, String] })
 const emit = defineEmits(['update:outlineId', 'update:outlineNodeId'])
 const nodes = ref([])
@@ -20,7 +20,7 @@ watch(() => props.outlineId, async id => {
   const ticket = ++generation
   nodes.value = []
   if (!id) return
-  const data = await getRecord('outline', id).then(result => result.data).catch(() => null)
+  const data = await getReferenceRecord('outline', id).then(result => result.data).catch(() => null)
   if (ticket === generation) nodes.value = data?.nodes || []
 }, { immediate: true })
 const tree = computed(() => {

@@ -3,6 +3,7 @@
     <resource-list
       ref="listRef"
       type="kp"
+      :initial-query="routeScope"
       @add="edit()"
       @edit="edit"
       @detail="detail"
@@ -156,6 +157,7 @@ const rules = {
   outlineIds: [{ type: 'array', required: true, min: 1, message: '请至少挂载一份教材大纲', trigger: 'change' }]
 }
 const route = useRoute()
+const routeScope = computed(() => ({ outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined }))
 function parentIds(id) {
   return /^[1-9]\d*$/.test(String(id ?? '')) ? [id] : []
 }
@@ -167,10 +169,9 @@ function syncScope() {
     open.value = false
     return
   }
-  listRef.value?.setFilters({ outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined })
+  listRef.value?.setFilters(routeScope.value)
 }
 watch(() => [route.path, route.query.outlineId, route.query.outlineNodeId], syncScope)
-onMounted(syncScope)
 async function edit(row, view = false) {
   readonly.value = view
   form.value = row?.id

@@ -7,7 +7,7 @@
   </div>
 </template>
 <script setup>
-import { getRecord } from '@/api/knowledge'
+import { getReferenceRecord } from '@/api/knowledge/reference-requests'
 const props = defineProps({
   type: String,
   ids: { type: Array, default: () => [] }
@@ -20,7 +20,7 @@ watch(
     const ticket = ++generation
     const result = await Promise.all(
       (ids || []).map((id) =>
-        getRecord(props.type, id)
+        getReferenceRecord(props.type, id)
           .then((r) => r.data)
           .catch(() => ({ id, title: `编号 ${id}（无法读取）` }))
       )

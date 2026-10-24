@@ -115,6 +115,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const props = defineProps({
   type: { type: String, required: true },
   defaultQuery: { type: Object, default: () => ({}) },
+  initialQuery: { type: Object, default: () => ({}) },
   actionWidth: { type: Number, default: 260 }
 })
 defineEmits(['add', 'detail', 'edit'])
@@ -124,13 +125,17 @@ const rows = ref([]),
   error = ref(''),
   showSearch = ref(true),
   selection = ref([])
-const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', ...(props.type === 'question' ? { expand:true } : {}), ...props.defaultQuery })
+const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', ...(props.type === 'question' ? { expand:true } : {}), ...props.defaultQuery, ...props.initialQuery })
 let generation = 0
 async function load() {
   const ticket = ++generation
   loading.value = true
   error.value = ''
   try {
+    // Route scope changes and KeepAlive activation may request a load in the
+    // same render cycle. Only the latest query should reach the backend.
+    await nextTick()
+    if (ticket !== generation) return
     const result = await listRecords(props.type, {
       ...Object.fromEntries(Object.entries(query).filter(([, value]) => value !== '')),
       keyword: undefined,
@@ -190,6 +195,7 @@ onActivated(() => {
   activatedOnce = true
 })
 function setFilters(filters) {
+  if (Object.entries(filters).every(([key, value]) => query[key] === value)) return
   Object.assign(query, filters)
   search()
 }

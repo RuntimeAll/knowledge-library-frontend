@@ -26,7 +26,7 @@
   <el-divider content-position="left">区域（未知可留空）</el-divider>
   <el-row v-for="(region, index) in model.regions" :key="index" :gutter="12" class="region-row">
     <el-col :span="8"><enum-select v-model="region.role" field="regionRole" :include-values="kind === 'product' ? ['APPLICABLE'] : model.profile.resourceType === 'EXAM_PAPER' ? null : ['ORIGIN', 'APPLICABLE']" /></el-col>
-    <el-col :span="13"><region-picker v-model="region.regionCode" :name="region.name" :disabled="readonly" @change="region.name = $event?.name" /></el-col>
+    <el-col :span="13"><region-picker v-model="region.regionCode" :name="region.name" :full-name="region.fullName" :disabled="readonly" @change="region.name = $event?.name; region.fullName = $event?.fullName" /></el-col>
     <el-col :span="3"><el-button v-if="!readonly" link type="danger" @click="model.regions.splice(index, 1)">移除</el-button></el-col>
   </el-row>
   <el-button v-if="!readonly" plain size="small" @click="model.regions.push({ role: 'APPLICABLE', regionCode: undefined })">添加区域</el-button>

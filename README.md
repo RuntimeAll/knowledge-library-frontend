@@ -11,6 +11,40 @@
 
 以下保留原若依框架说明及来源。
 
+## 核心接口文档
+
+登录页“查看核心接口文档”进入 `/api-docs`，无需登录；原“系统工具 → 系统接口”入口展示同一 Swagger 页面。文档只加载后端精选 `core` 分组，业务调用继续要求调用者自己的 Bearer Token 和权限。页面不读取管理端 Token；在 Swagger 的 Authorize 中输入 Token，刷新后重新授权。Swagger 的操作锚点会同步到外层地址，便于分享和刷新。
+
+请求只发往当前站点的 `VITE_APP_BASE_API` 前缀：开发 `/dev-api`、预发布 `/stage-api`、正式 `/prod-api`。页面显示当前请求环境，不提供外部地址切换。开发代理随环境前缀转发到8080，并传递 `X-Forwarded-Prefix`；后端需正确处理可信反向代理的转发头。公开 `/api-docs` 不意味着整个管理后台或业务数据免鉴权。
+
+正式站点需配置 HTTPS、SPA history fallback 与同源 API 代理，例如以下路径规则（域名、证书和服务地址由部署配置确定）：
+
+```nginx
+location /prod-api/ {
+    proxy_pass http://127.0.0.1:8080/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /prod-api;
+}
+location / {
+    try_files $uri $uri/ /index.html;
+}
+```
+
+公开入口、Swagger资源、`/prod-api/v3/api-docs/core`、授权请求均经同一站点；不要另开绕过前缀的全量 `/v3/api-docs` 代理。实际公网部署与外网验收须另行记录，构建成功不表示已发布。
+
+## 前端增量质量检查
+
+使用 Node `^20.19.0 || ^22.13.0 || >=24.0.0`，通过 `npm ci` 安装锁定依赖。ESLint 10 与 Vue essential 检查使用 flat 配置；自动导入全局名和 Vite 共享声明，新增代码仍应优先显式导入。
+
+- `npm run lint`：扫描全部业务源码和构建/检查代码，阻断新增违规；不修改文件。
+- `npm run lint:full`：直接显示全部历史与新增问题，存在历史问题时预期非零。
+- `npm run test:quality`：验证JS/Vue规则实际生效、同源路径限制和历史基线不能豁免新增/修改行。
+- `npm run build:prod`：生产构建；预发布使用 `npm run build:stage`。
+
+`quality/eslint-baseline.json`固定PRD-009开始时的提交、源码哈希和406条历史问题的规则/位置/原因。检查器将原位置映射到当前未改动行；触达违规行、复制旧代码或新增文件不能沿用历史豁免。普通检查不刷新基线，没有自动更新命令；修复后可删除相应条目，扩大基线须有明确审查依据。静态检查不能替代分页、请求竞态和真实接口验收。
+
 <p align="center">
 	<img alt="logo" src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png">
 </p>

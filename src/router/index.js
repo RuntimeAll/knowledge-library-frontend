@@ -27,6 +27,13 @@ import Layout from '@/layout'
 // 公共路由
 export const constantRoutes = [
   {
+    path: '/api-docs',
+    component: () => import('@/views/api-docs/index.vue'),
+    name: 'PublicApiDocumentation',
+    hidden: true,
+    meta: { title: '核心接口文档' }
+  },
+  {
     path: '/redirect',
     component: Layout,
     hidden: true,

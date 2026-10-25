@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import createVitePlugins from './vite/plugins'
+import { normalizeApiPrefix } from './src/utils/api-docs.js'
 
 const baseUrl = 'http://localhost:8080' // 后端接口
 
@@ -8,6 +9,8 @@ const baseUrl = 'http://localhost:8080' // 后端接口
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd())
   const { VITE_APP_ENV } = env
+  const apiPrefix = normalizeApiPrefix(env.VITE_APP_BASE_API)
+  if (!apiPrefix) throw new Error('开发代理必须配置非空 VITE_APP_BASE_API 路径前缀')
   return {
     // 部署生产环境和开发环境下的URL。
     // 默认情况下，vite 会假设你的应用是被部署在一个域名的根路径上
@@ -48,10 +51,12 @@ export default defineConfig(({ mode, command }) => {
       open: true,
       proxy: {
         // https://cn.vitejs.dev/config/#server-proxy
-        '/dev-api': {
+        [apiPrefix]: {
           target: baseUrl,
           changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/dev-api/, ''),
+          xfwd: true,
+          headers: { 'X-Forwarded-Prefix': apiPrefix },
+          rewrite: (p) => p.slice(apiPrefix.length) || '/',
           configure: (proxy) => {
             // Development-only request evidence; omit credentials, query and body.
             proxy.on('proxyRes', (response, request) => {
@@ -61,11 +66,6 @@ export default defineConfig(({ mode, command }) => {
               }
             })
           }
-        },
-         // springdoc proxy
-         '^/v3/api-docs/(.*)': {
-          target: baseUrl,
-          changeOrigin: true,
         }
       }
     },

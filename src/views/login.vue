@@ -56,6 +56,9 @@
           <router-link class="link-type" :to="'/register'">立即注册</router-link>
         </div>
       </el-form-item>
+      <div class="api-docs-link">
+        <router-link to="/api-docs">查看核心接口文档</router-link>
+      </div>
     </el-form>
     <!--  底部  -->
     <div class="el-login-footer">
@@ -202,6 +205,12 @@ getCookie()
   font-size: 13px;
   text-align: center;
   color: #bfbfbf;
+}
+.api-docs-link {
+  margin: 0 0 18px;
+  text-align: center;
+  color: #337ecc;
+  font-size: 14px;
 }
 .login-code {
   width: 33%;

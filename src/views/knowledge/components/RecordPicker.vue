@@ -42,6 +42,7 @@
           </el-button>
         </el-form-item>
       </el-form>
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" class="mb8" />
       <el-table
         v-loading="loading"
         :data="rows"
@@ -75,7 +76,7 @@
               link
               type="primary"
               :disabled="
-                selected.some((item) => String(item.id) === String(row.id))
+                selected.some((item) => String(item.id) === String(row.id)) || excludeIds.some(id => String(id) === String(row.id))
               "
               @click="choose(row)"
             >
@@ -100,6 +101,9 @@
 <script setup>
 import { listRecords, getRecord } from '@/api/knowledge'
 import { getReferenceRecord } from '@/api/knowledge/reference-requests'
+import { getQuestionsByIds } from '@/api/knowledge/question'
+import { createRequestGeneration } from '@/utils/request-generation'
+import useUserStore from '@/store/modules/user'
 import { resourceNames, label } from './labels'
 import { formContextKey } from 'element-plus'
 const props = defineProps({
@@ -108,6 +112,7 @@ const props = defineProps({
   multiple: { type: Boolean, default: true },
   excludeIds: { type: Array, default: () => [] },
   filters: { type: Object, default: () => ({}) },
+  knownRecords: { type: Array, default: () => [] },
   disabled: Boolean
 })
 const parentForm = inject(formContextKey, undefined)
@@ -116,21 +121,39 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const selected = ref([]),
   open = ref(false),
   loading = ref(false),
+  loadError = ref(''),
   rows = ref([]),
   total = ref(0),
   keyword = ref(''),
   pageNum = ref(1),
   pageSize = ref(10)
 let generation = 0
+const user = useUserStore()
+const listRequests = createRequestGeneration()
+watch(open, visible => { if (!visible) listRequests.invalidate() })
+watch(() => props.filters, () => { if (open.value) search() }, { deep: true })
+onBeforeUnmount(() => { generation++; listRequests.invalidate() })
 watch(
-  () => props.modelValue,
-  async (ids) => {
+  () => [props.modelValue, props.knownRecords, props.type, user.id, user.name],
+  async ([ids]) => {
     const ticket = ++generation
+    if (props.type === 'question') {
+      const known = new Map(props.knownRecords.map(item => [String(item.id), item]))
+      const missing = (ids || []).filter(id => !known.has(String(id)))
+      try {
+        const fetched = await getQuestionsByIds(missing)
+        fetched.forEach(item => known.set(String(item.id), item))
+      } catch {
+        // Preserve selected identities visibly even when their current details are unavailable.
+      }
+      if (ticket === generation) selected.value = (ids || []).map(id => known.get(String(id)) || { id: String(id), title: `编号 ${id}（当前不可读取）`, unavailable: true })
+      return
+    }
     const items = await Promise.all(
       (ids || []).map(
         async (id) =>
           selected.value.find((item) => String(item.id) === String(id)) ||
-          (await (props.type === 'outline' ? getReferenceRecord(props.type, id) : getRecord(props.type, id))
+          (await (['outline', 'kp'].includes(props.type) ? getReferenceRecord(props.type, id) : getRecord(props.type, id))
             .then((r) => r.data)
             .catch(() => ({ id, title: `编号 ${id}（无法读取）` })))
       )
@@ -140,21 +163,25 @@ watch(
   { immediate: true, deep: true }
 )
 async function load() {
+  const ticket = listRequests.start()
   loading.value = true
+  loadError.value = ''
   try {
     const result = await listRecords(props.type, {
       pageNum: pageNum.value,
       pageSize: pageSize.value,
       title: props.type === 'kp' ? undefined : keyword.value,
       name: props.type === 'kp' ? keyword.value : undefined,
+      ...(props.type === 'question' ? { purpose: 'NORMAL' } : {}),
       ...props.filters
     })
-    rows.value = (result.rows || []).filter(
-      (row) => !props.excludeIds.some((id) => String(id) === String(row.id))
-    )
+    if (!listRequests.current(ticket)) return
+    rows.value = result.rows || []
     total.value = Number(result.total || 0)
+  } catch (failure) {
+    if (listRequests.current(ticket)) { rows.value = []; total.value = 0; loadError.value = failure.message || '列表加载失败，请重新搜索' }
   } finally {
-    loading.value = false
+    if (listRequests.current(ticket)) loading.value = false
   }
 }
 function search() {
@@ -173,7 +200,7 @@ function publish() {
   emit('change', selected.value)
 }
 function choose(row) {
-  if (isDisabled.value) return
+  if (isDisabled.value || props.excludeIds.some(id => String(id) === String(row.id))) return
   selected.value = props.multiple ? [...selected.value, row] : [row]
   publish()
   if (!props.multiple) open.value = false

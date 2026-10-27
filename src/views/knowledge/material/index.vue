@@ -50,7 +50,7 @@
     <el-dialog
       v-model="open"
       :title="form.id ? '编辑专项 / 组织选题' : '新增专项'"
-      width="1050px"
+      width="min(1250px, 95vw)"
       append-to-body
       destroy-on-close
       :close-on-click-modal="!saving"
@@ -165,7 +165,8 @@
             {{ row.isRealExam ? '有效真题' : '无有效证明' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="canSave" label="操作" width="180">
+        <el-table-column label="当前可用性" min-width="230"><template #default="{ row }"><el-tag v-if="unavailable(row)" type="warning">当前不可用，保留原引用</el-tag><span v-else>待正式取用时复核</span><div v-if="unavailable(row)">{{ row.readinessReasons?.join('；') || '请检查题目状态与当前批准依据' }}</div></template></el-table-column>
+        <el-table-column v-if="canSave" label="操作" width="180" fixed="right">
           <template #default="{ $index }">
             <el-button
               link
@@ -210,128 +211,7 @@
         <el-button @click="open = false">关闭</el-button>
       </template>
     </el-dialog>
-    <el-dialog
-      v-model="candidateOpen"
-      title="专项候选题（服务端分页）"
-      width="1000px"
-      append-to-body
-      destroy-on-close
-    >
-      <el-alert
-        :title="
-          form.selectionMode === 'EXAM_ONLY'
-            ? '后端已限定为参考范围内的合格真题；没有候选时请先检查来源核实、出处核实与题干一致性。'
-            : '混合模式允许选择自编题和变式；参考来源用于考点比较，不自动限制混合候选。'
-        "
-        type="info"
-        :closable="false"
-        class="mb8"
-      />
-      <el-form inline @submit.prevent="searchCandidates">
-        <el-form-item label="标题">
-          <el-input
-            v-model="candidateQuery.title"
-            clearable
-            @keyup.enter="searchCandidates"
-          />
-        </el-form-item>
-        <el-form-item label="题干关键词">
-          <el-input
-            v-model="candidateQuery.query"
-            clearable
-            @keyup.enter="searchCandidates"
-          />
-        </el-form-item>
-        <el-form-item label="内容类型">
-          <enum-select v-model="candidateQuery.contentKind" field="contentKind" clearable style="width: 140px" />
-        </el-form-item>
-        <el-form-item label="题型 / 知识类型">
-          <enum-select v-model="candidateQuery.questionType" field="questionType" clearable style="width: 150px" />
-        </el-form-item>
-        <el-form-item label="范围">
-          <el-select
-            v-model="candidateQuery.scope"
-            style="width: 150px"
-            @change="searchCandidates"
-          >
-            <el-option label="参考来源范围" value="REFERENCE" />
-            <el-option
-              v-if="form.selectionMode !== 'EXAM_ONLY'"
-              label="全部题库"
-              value="ALL"
-            />
-          </el-select>
-        </el-form-item>
-        <el-button type="primary" icon="Search" @click="searchCandidates">
-          搜索
-        </el-button>
-      </el-form>
-      <el-table
-        v-loading="candidateLoading"
-        :data="candidates"
-        empty-text="无符合条件的候选题"
-      >
-        <el-table-column label="题目" min-width="250">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="questionDetailRef.show(row)">
-              {{ row.title }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            {{ label('status', row.status) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="内容 / 题型" width="160">
-          <template #default="{ row }">{{ label('contentKind', row.contentKind) }}<br>{{ label('questionType', row.questionType) }}</template>
-        </el-table-column>
-        <el-table-column label="创作类型" width="110">
-          <template #default="{ row }">
-            {{ label('creationKind', row.creationKind) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="考点" min-width="200">
-          <template #default="{ row }">
-            <relation-names type="kp" :ids="row.kpIds" />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="140">
-          <template #default="{ row }">
-            <el-button
-              link
-              type="primary"
-              :disabled="
-                form.questionIds.some((id) => String(id) === String(row.id))
-              "
-              @click="addQuestion(row)"
-            >
-              {{
-                form.questionIds.some((id) => String(id) === String(row.id))
-                  ? '已加入'
-                  : '加入专项'
-              }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <pagination
-        v-show="candidateTotal > 0"
-        :total="candidateTotal"
-        v-model:page="candidateQuery.pageNum"
-        v-model:limit="candidateQuery.pageSize"
-        @pagination="loadCandidates"
-      />
-      <template #footer>
-        <span class="selection-count">
-          已选 {{ selectedQuestions.length }} 题
-        </span>
-        <el-button type="primary" :loading="saving" @click="saveCandidates">
-          保存所选题目
-        </el-button>
-        <el-button @click="candidateOpen = false">返回专项</el-button>
-      </template>
-    </el-dialog>
+    <material-question-picker ref="candidateRef" :selected="selectedQuestions" :saving="saving" @add="addQuestion" @save="saveCandidates" @detail="row => questionDetailRef.show(row)" />
     <el-drawer
       v-model="comparisonOpen"
       :title="`考点对照 · ${comparisonMaterial.title || ''}`"
@@ -434,10 +314,13 @@ import RelationNames from '../components/RelationNames.vue'
 import EnumSelect from '../components/EnumSelect.vue'
 import QuestionDetail from '../components/QuestionDetail.vue'
 import GenerateDialog from '../components/GenerateDialog.vue'
+import MaterialQuestionPicker from '../components/MaterialQuestionPicker.vue'
+import { getMaterialComparison, validateMaterial } from '@/api/knowledge/material'
+import { createRequestGeneration } from '@/utils/request-generation'
+import { materialQuestions } from '../components/materialSelection'
 import {
   getRecord,
   saveRecord,
-  knowledgeRequest,
   exportQuestions
 } from '@/api/knowledge'
 import { label } from '../components/labels'
@@ -445,6 +328,7 @@ import { ElMessage } from 'element-plus'
 import { checkPermi } from '@/utils/permission'
 const listRef = ref(),
   generateRef = ref(),
+  candidateRef = ref(),
   formRef = ref(),
   questionDetailRef = ref(),
   form = ref({}),
@@ -466,30 +350,24 @@ const comparisonPages = reactive({
   coveragePageNum: 1,
   coveragePageSize: 10
 })
-const candidateOpen = ref(false),
-  candidateLoading = ref(false),
-  candidates = ref([]),
-  candidateTotal = ref(0),
-  candidateQuery = reactive({
-    pageNum: 1,
-    pageSize: 10,
-    title: '',
-    query: '',
-    contentKind: '',
-    questionType: '',
-    scope: 'REFERENCE'
-  })
 const comparisonOpen = ref(false),
   comparisonLoading = ref(false),
   comparisonMaterial = ref({}),
   comparison = ref({}),
   comparisonScope = ref('REFERENCE'),
   expandKp = ref(true)
+const detailRequests = createRequestGeneration()
+const comparisonRequests = createRequestGeneration()
+watch(open, visible => { if (!visible) detailRequests.invalidate() })
+watch(comparisonOpen, visible => { if (!visible) comparisonRequests.invalidate() })
+onBeforeUnmount(() => { detailRequests.invalidate(); comparisonRequests.invalidate() })
 const rules = {
   title: [{ required: true, message: '请填写专项名称', trigger: 'blur' }]
 }
 async function edit(row) {
-  form.value = row?.id
+  const ticket = detailRequests.start()
+  saving.value = false
+  const record = row?.id
     ? (await getRecord('material', row.id)).data
     : {
         title: '',
@@ -497,11 +375,13 @@ async function edit(row) {
         questionIds: [],
         referenceSources: []
       }
+  if (!detailRequests.current(ticket)) return
+  form.value = record
   form.value.questionIds ||= []
   form.value.referenceSources ||= []
   kpIds.value = form.value.kpId ? [form.value.kpId] : []
   referenceIds.value = form.value.referenceSources.map((item) => item.sourceId)
-  selectedQuestions.value = form.value.questions || []
+  selectedQuestions.value = materialQuestions(form.value)
   validationMessage.value = ''
   open.value = true
 }
@@ -520,17 +400,25 @@ async function save(close = false) {
     ElMessage.warning('仅真题模式必须选择参考来源')
     return false
   }
+  const ticket = detailRequests.start()
   saving.value = true
   try {
     const response = await saveRecord('material', {
-      ...form.value,
-      questions: undefined,
+      id: form.value.id,
+      rowVersion: form.value.rowVersion,
+      title: form.value.title,
+      description: form.value.description,
+      selectionMode: form.value.selectionMode,
+      referenceSources: form.value.referenceSources,
+      remark: form.value.remark,
       kpId: kpIds.value[0] || null,
       questionIds: selectedQuestions.value.map((item) => item.id)
     })
+    if (!detailRequests.current(ticket)) return false
     form.value = response.data
     form.value.questionIds ||= selectedQuestions.value.map((item) => item.id)
     form.value.referenceSources ||= []
+    selectedQuestions.value = materialQuestions(form.value, selectedQuestions.value)
     ElMessage.success('专项保存成功')
     listRef.value.reload()
     if (close) open.value = false
@@ -538,35 +426,11 @@ async function save(close = false) {
   } catch {
     return false
   } finally {
-    saving.value = false
+    if (detailRequests.current(ticket)) saving.value = false
   }
 }
 async function chooseQuestions() {
-  if (!(await save())) return
-  candidateQuery.pageNum = 1
-  candidateQuery.scope =
-    form.value.selectionMode === 'EXAM_ONLY' ? 'REFERENCE' : 'ALL'
-  candidateOpen.value = true
-  await loadCandidates()
-}
-async function loadCandidates() {
-  candidateLoading.value = true
-  try {
-    const response = await knowledgeRequest(
-      `/material/${form.value.id}/candidates`,
-      'get',
-      undefined,
-      candidateQuery
-    )
-    candidates.value = response.rows || []
-    candidateTotal.value = Number(response.total || 0)
-  } finally {
-    candidateLoading.value = false
-  }
-}
-function searchCandidates() {
-  candidateQuery.pageNum = 1
-  loadCandidates()
+  if (await save()) await candidateRef.value.show(form.value)
 }
 function addQuestion(row) {
   if (
@@ -589,15 +453,19 @@ function move(index, offset) {
   form.value.questionIds = selectedQuestions.value.map((item) => item.id)
 }
 async function saveCandidates() {
-  if (await save()) candidateOpen.value = false
+  if (await save()) candidateRef.value.close()
 }
 async function validateSelection() {
   if (!(await save())) return
-  const response = await knowledgeRequest(`/material/${form.value.id}/validate`)
+  const response = await validateMaterial(form.value.id)
   form.value.selectionValid = response.data.selectionValid
+  form.value.unavailableQuestionIds = response.data.unavailableQuestionIds || []
   validationMessage.value = response.data.selectionValid
     ? '服务端校验通过：当前选题符合专项规则'
-    : '当前选题不符合参考范围或核实规则，请调整选题'
+    : `当前题单尚不可正式使用，请检查参考范围、核实与批准依据${form.value.unavailableQuestionIds.length ? `；不可用题目：${form.value.unavailableQuestionIds.join('、')}` : ''}`
+}
+function unavailable(row) {
+  return row.unavailable || row.status !== 'READY' || (form.value.unavailableQuestionIds || []).some(id => String(id) === String(row.id))
 }
 async function compare(row) {
   comparisonMaterial.value = { ...row }
@@ -614,29 +482,27 @@ async function compareCurrent() {
   if (await save()) await compare(form.value)
 }
 async function loadComparison() {
+  const ticket = comparisonRequests.start()
   comparisonLoading.value = true
   try {
-    comparison.value = (
-      await knowledgeRequest(
-        `/material/${comparisonMaterial.value.id}/comparison`,
-        'get',
-        undefined,
-        {
+    const result = (
+      await getMaterialComparison(comparisonMaterial.value.id, {
           scope: comparisonScope.value,
           expand: expandKp.value,
           ...comparisonPages
         }
       )
     ).data
+    if (comparisonRequests.current(ticket)) comparison.value = result
   } finally {
-    comparisonLoading.value = false
+    if (comparisonRequests.current(ticket)) comparisonLoading.value = false
   }
 }
 async function download(row) {
   exporting.value = row.id
   try {
     await exportQuestions(
-      { materialId: row.id, includeAnswers: true },
+      { materialId: row.id, includeAnswers: true, purpose: 'NORMAL' },
       `${row.title}-资源包.zip`
     )
     ElMessage.success('专项资源包已下载；重新排版后可在成品页面另存版本')
@@ -649,14 +515,20 @@ async function download(row) {
 async function downloadCurrent() {
   if (await save()) await download(form.value)
 }
-async function refreshSelected() {
-  selectedQuestions.value = await Promise.all(
-    selectedQuestions.value.map((item) =>
-      getRecord('question', item.id).then((r) => r.data)
-    )
-  )
+async function refreshSelected(updated) {
+  const ticket = detailRequests.start(), id = form.value.id
+  if (updated?.id) selectedQuestions.value = selectedQuestions.value.map(item => String(item.id) === String(updated.id) ? updated : item)
+  if (open.value && form.value.id) {
+    const current = (await getRecord('material', id)).data
+    if (!detailRequests.current(ticket) || String(form.value.id) !== String(id)) return
+    const byId = new Map((current.questions || []).map(item => [String(item.id), item]))
+    selectedQuestions.value = selectedQuestions.value.map(item => byId.get(String(item.id)) || item)
+    form.value.selectionValid = current.selectionValid
+    form.value.unavailableQuestionIds = current.unavailableQuestionIds || []
+  }
   listRef.value.reload()
 }
+
 </script>
 <style scoped>
 .form-hint {

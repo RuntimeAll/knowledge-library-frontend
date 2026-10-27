@@ -5,13 +5,17 @@
     width="800px"
     append-to-body
     destroy-on-close
+    :close-on-click-modal="!saving"
+    :close-on-press-escape="!saving"
+    :show-close="!saving"
   >
     <el-alert
-      title="区分练习题与知识点内容；正文通过导出后本地修改并重新导入更新。设为可用前需补齐学科、题型和考点。"
+      title="正文通过导出后本地修改并重新导入更新。元数据保存后仍需独立检查与批准，不能在此设置正常状态。"
       type="info"
       :closable="false"
       class="mb8"
     />
+    <el-alert v-if="form.status === 'READY'" title="正常题的分类、考点等关键资料发生变化，本次保存会退回草稿，需要重新批准。" type="warning" :closable="false" class="mb8" />
     <el-form
       ref="formRef"
       :model="form"
@@ -77,9 +81,7 @@
           </el-form-item>
         </el-collapse-item>
       </el-collapse>
-      <el-form-item label="状态">
-        <enum-select v-model="form.status" field="status" />
-      </el-form-item>
+      <el-form-item label="当前状态">{{ label('status', form.status) }}</el-form-item>
       <el-form-item label="创作类型">
         <el-select
           v-model="form.creationKind"
@@ -121,17 +123,18 @@
       <el-button type="primary" :loading="saving" @click="save">
         保存元数据
       </el-button>
-      <el-button @click="open = false">取消</el-button>
+      <el-button :disabled="saving" @click="open = false">取消</el-button>
     </template>
   </el-dialog>
 </template>
 <script setup>
 import { getRecord, saveRecord } from '@/api/knowledge'
-import { dictionaries, loadDictionary } from './labels'
+import { dictionaries, loadDictionary, label } from './labels'
 loadDictionary('creationKind')
 import EnumSelect from './EnumSelect.vue'
 import RecordPicker from './RecordPicker.vue'
 import { ElMessage } from 'element-plus'
+import { createRequestGeneration } from '@/utils/request-generation'
 const emit = defineEmits(['saved'])
 const open = ref(false),
   saving = ref(false),
@@ -139,22 +142,23 @@ const open = ref(false),
   formRef = ref()
 const rules = {
   title: [{ required: true, message: '请填写内容名称', trigger: 'blur' }],
-  contentKind: [{ required: true, message: '请选择内容类型', trigger: 'change' }],
-  subject: [{ validator: readyRequired('学科'), trigger: 'change' }],
-  questionType: [{ validator: readyRequired('题型或知识类型'), trigger: 'change' }],
-  kpIds: [{ validator: readyRequired('关联考点'), trigger: 'change' }]
+  contentKind: [{ required: true, message: '请选择内容类型', trigger: 'change' }]
 }
 const knowledgeTypes = ['KNOWLEDGE_REVIEW', 'KNOWLEDGE_EXPLANATION']
-function readyRequired(name) {
-  return (_rule, value, callback) => callback(form.value.status === 'READY' && (!value || (Array.isArray(value) && !value.length))
-    ? new Error(`设为可用前请补齐${name}`) : undefined)
-}
+const requests = createRequestGeneration()
+watch(open, visible => { if (!visible) { requests.invalidate(); saving.value = false } })
+onBeforeUnmount(requests.invalidate)
 function changeContentKind(value) {
   if (value === 'KNOWLEDGE' && !knowledgeTypes.includes(form.value.questionType)) form.value.questionType = 'KNOWLEDGE_REVIEW'
   if (value === 'EXERCISE' && knowledgeTypes.includes(form.value.questionType)) form.value.questionType = ''
 }
 async function show(row) {
-  form.value = (await getRecord('question', row.id)).data
+  const ticket = requests.start()
+  saving.value = false
+  const current = (await getRecord('question', row.id)).data
+  if (!requests.current(ticket)) return
+  if (['DELETED', 'RETIRED'].includes(current.status)) return ElMessage.warning('已删除或停用题目请先恢复为草稿')
+  form.value = current
   form.value.kpIds ||= []
   form.value.contentKind ||= 'EXERCISE'
   form.value.layoutMode ||= 'PLAIN'
@@ -164,6 +168,7 @@ async function show(row) {
 }
 async function save() {
   if (!(await formRef.value.validate().catch(() => false))) return
+  const ticket = requests.start()
   saving.value = true
   try {
     const {
@@ -178,13 +183,12 @@ async function save() {
       unitKind,
       paginationMode,
       layoutNote,
-      status,
       creationKind,
       kpIds,
       sourceNote,
       remark
     } = form.value
-    await saveRecord('question', {
+    const response = await saveRecord('question', {
       id,
       rowVersion,
       title,
@@ -196,17 +200,17 @@ async function save() {
       unitKind,
       paginationMode,
       layoutNote,
-      status,
       creationKind,
       kpIds,
       sourceNote,
       remark
     })
-    ElMessage.success('题目元数据保存成功')
+    if (!requests.current(ticket)) return
+    ElMessage.success(response.data?.status === 'DRAFT' ? '元数据已保存为草稿，请检查后重新批准' : '题目元数据保存成功')
     open.value = false
     emit('saved', id)
   } finally {
-    saving.value = false
+    if (requests.current(ticket)) saving.value = false
   }
 }
 defineExpose({ show })

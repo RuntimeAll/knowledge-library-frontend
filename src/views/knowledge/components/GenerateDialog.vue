@@ -39,7 +39,7 @@
             <el-card v-for="(section, index) in form.sections" :key="section.key" shadow="never" class="section-card">
               <template #header><div class="section-header"><span>栏目 {{ index + 1 }}</span><el-button type="danger" link :disabled="form.sections.length === 1" @click="form.sections.splice(index, 1)">移除栏目</el-button></div></template>
               <el-row :gutter="12"><el-col :span="12"><el-form-item label="栏目标题"><el-input v-model="section.title" maxlength="200" /></el-form-item></el-col><el-col :span="12"><el-form-item label="每日标识"><el-input v-model="section.dayKey" placeholder="每日打卡可填写，如 day-01" maxlength="64" /></el-form-item></el-col></el-row>
-              <record-picker :model-value="section.questionRefs.map(q => q.questionId)" type="question" @change="rows => setQuestions(section, rows)" />
+              <record-picker :model-value="section.questionRefs.map(q => q.questionId)" type="question" :filters="{ purpose: 'NORMAL' }" @change="rows => setQuestions(section, rows)" />
               <el-table :data="section.questionRefs" size="small" empty-text="请按本栏目顺序选择题目">
                 <el-table-column label="序号" type="index" width="65" />
                 <el-table-column label="题目" min-width="260"><template #default="{ row }">{{ questionNames[row.questionId] || `题目 ${row.questionId}` }}</template></el-table-column>
@@ -70,6 +70,7 @@
 <script setup>
 import { ElMessage } from 'element-plus'
 import { getRecord } from '@/api/knowledge'
+import { getQuestionsByIds } from '@/api/knowledge/question'
 import { getTemplateOptions, getExperienceVersion, validateRender, createRenderJob } from '@/api/knowledge/experience'
 import useUserStore from '@/store/modules/user'
 import TemplateFields from './TemplateFields.vue'
@@ -159,8 +160,11 @@ async function refreshQuestions() {
   refreshing.value = true
   try {
     const ids = [...new Set(form.value.sections.flatMap(s => s.questionRefs.map(q => String(q.questionId))))]
-    const current = new Map()
-    for (const id of ids) { const row = (await getRecord('question', id)).data; current.set(id, row); questionNames[id] = row.title }
+    const rows = await getQuestionsByIds(ids)
+    const current = new Map(rows.map(row => [String(row.id), row]))
+    const missing = ids.filter(id => !current.has(id))
+    if (missing.length) return ElMessage.warning(`以下题目当前不可读取，保留原题序和版本：${missing.join('、')}`)
+    rows.forEach(row => { questionNames[row.id] = row.title })
     form.value.sections.forEach(s => s.questionRefs.forEach(q => { q.rowVersion = current.get(String(q.questionId)).rowVersion }))
     ElMessage.success('已读取当前版本，请重新预检')
   } finally { refreshing.value = false }

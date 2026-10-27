@@ -43,6 +43,7 @@
       class="mb8"
     />
     <el-table
+      ref="tableRef"
       v-loading="loading"
       :data="rows"
       row-key="id"
@@ -79,6 +80,7 @@
             详情
           </el-button>
           <el-button
+            v-if="showEdit"
             v-hasPermi="[`knowledge:${type}:edit`]"
             link
             type="primary"
@@ -88,6 +90,7 @@
           </el-button>
           <slot name="actions" :row="row" />
           <el-button
+            v-if="showDelete"
             v-hasPermi="[`knowledge:${type}:remove`]"
             link
             type="danger"
@@ -116,7 +119,9 @@ const props = defineProps({
   type: { type: String, required: true },
   defaultQuery: { type: Object, default: () => ({}) },
   initialQuery: { type: Object, default: () => ({}) },
-  actionWidth: { type: Number, default: 260 }
+  actionWidth: { type: Number, default: 260 },
+  showEdit: { type: Boolean, default: true },
+  showDelete: { type: Boolean, default: true }
 })
 defineEmits(['add', 'detail', 'edit'])
 const rows = ref([]),
@@ -124,11 +129,14 @@ const rows = ref([]),
   loading = ref(false),
   error = ref(''),
   showSearch = ref(true),
-  selection = ref([])
+  selection = ref([]),
+  tableRef = ref()
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', ...(props.type === 'question' ? { expand:true } : {}), ...props.defaultQuery, ...props.initialQuery })
 let generation = 0
 async function load() {
   const ticket = ++generation
+  selection.value = []
+  tableRef.value?.clearSelection()
   loading.value = true
   error.value = ''
   try {
@@ -188,6 +196,7 @@ async function remove(row) {
   }
 }
 onMounted(load)
+onBeforeUnmount(() => { generation++ })
 // KeepAlive re-entry must refresh records changed on other pages or by imports.
 let activatedOnce = false
 onActivated(() => {

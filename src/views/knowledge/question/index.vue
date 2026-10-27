@@ -1,9 +1,19 @@
 <template>
   <div class="knowledge-page">
+    <el-radio-group v-model="view" class="question-views" @change="syncScope">
+      <el-radio-button value="NORMAL">正常</el-radio-button>
+      <el-radio-button v-if="canMaintain" value="DRAFT">草稿</el-radio-button>
+      <el-radio-button v-if="canMaintain" value="DELETED">已删除 / 回收站</el-radio-button>
+      <el-radio-button v-if="canMaintain" value="RETIRED">历史停用</el-radio-button>
+      <el-radio-button v-if="canMaintain" value="MAINTENANCE">全部维护记录</el-radio-button>
+    </el-radio-group>
     <resource-list
       ref="listRef"
       type="question"
       :initial-query="routeScope"
+      :default-query="viewQuery"
+      :show-delete="false"
+      :show-edit="!['DELETED', 'RETIRED'].includes(view)"
       :action-width="340"
       @add="importRef.show('create')"
       @edit="(row) => editorRef.show(row)"
@@ -12,14 +22,6 @@
       <template #filters="{ query }">
         <el-form-item label="内容类型">
           <enum-select v-model="query.contentKind" field="contentKind" clearable style="width: 140px" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <enum-select
-            v-model="query.status"
-            field="status"
-            clearable
-            style="width: 130px"
-          />
         </el-form-item>
         <el-form-item label="创作类型">
           <enum-select
@@ -107,6 +109,8 @@
         <el-form-item label="错题出处"><record-picker :model-value="query.wrongSourceId ? [query.wrongSourceId] : []" type="source" :multiple="false" @update:model-value="query.wrongSourceId = $event[0]; if ($event[0]) query.wrongOnly = true" /></el-form-item>
       </template>
       <template #toolbar="{ selection }">
+        <el-col v-if="view === 'DRAFT'" :span="1.5"><el-button v-hasPermi="['knowledge:question:approve']" type="success" plain :disabled="!selection.length" @click="batchRef.show(selection)">逐题批准所选</el-button></el-col>
+        <el-col v-if="view === 'DRAFT'" :span="1.5"><el-button v-hasPermi="['knowledge:question:approve']" plain @click="batchRef.show()">查回未确认审批</el-button></el-col>
         <el-col :span="1.5">
           <el-button
             v-hasPermi="['knowledge:import:execute']"
@@ -127,7 +131,7 @@
             :loading="exporting"
             @click="download(selection)"
           >
-            导出所选
+            {{ view === 'NORMAL' ? '正式导出所选' : '导出所选以修改' }}
           </el-button>
         </el-col>
       </template>
@@ -173,7 +177,9 @@
         </el-table-column>
       </template>
       <template #actions="{ row }">
+        <el-button v-hasPermi="['knowledge:question:query']" link type="primary" @click="detailRef.show(row)">检查 / 审核</el-button>
         <el-button
+          v-if="!['DELETED', 'RETIRED'].includes(row.status)"
           v-hasPermi="['knowledge:import:execute']"
           link
           type="primary"
@@ -182,6 +188,7 @@
           更新正文
         </el-button>
         <el-button
+          v-if="row.status === 'READY'"
           v-hasPermi="['knowledge:import:execute']"
           link
           type="primary"
@@ -194,6 +201,7 @@
     <question-detail ref="detailRef" @changed="listRef.reload()" />
     <question-editor ref="editorRef" @saved="listRef.reload()" />
     <html-import-dialog ref="importRef" @completed="listRef.reload()" />
+    <question-approval-batch ref="batchRef" @changed="listRef.reload()" @detail="row => detailRef.show(row)" />
   </div>
 </template>
 <script setup name="KnowledgeQuestion">
@@ -207,6 +215,9 @@ import HtmlImportDialog from '../components/HtmlImportDialog.vue'
 import OutlineScopeFilter from '../components/OutlineScopeFilter.vue'
 import RegionPicker from '../components/RegionPicker.vue'
 import RelationNames from '../components/RelationNames.vue'
+import QuestionApprovalBatch from '../components/QuestionApprovalBatch.vue'
+import { checkPermi } from '@/utils/permission'
+import { createRequestGeneration } from '@/utils/request-generation'
 import { label } from '../components/labels'
 import { exportQuestions, getRecord } from '@/api/knowledge'
 import { ElMessage } from 'element-plus'
@@ -214,25 +225,38 @@ const listRef = ref(),
   detailRef = ref(),
   editorRef = ref(),
   importRef = ref(),
+  batchRef = ref(),
   exporting = ref(false)
 const route = useRoute()
-const routeScope = computed(() => ({ outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined }))
+const importRequests = createRequestGeneration()
+watch(() => route.path, importRequests.invalidate)
+onBeforeUnmount(importRequests.invalidate)
+const canMaintain = computed(() => checkPermi(['knowledge:question:query']))
+const view = ref('NORMAL')
+const viewQuery = computed(() => ({ purpose: view.value === 'NORMAL' ? 'NORMAL' : 'MAINTENANCE', status: ['NORMAL', 'MAINTENANCE'].includes(view.value) ? undefined : view.value }))
+const routeScope = computed(() => ({ ...viewQuery.value, outlineId: route.query.outlineId || undefined, outlineNodeId: route.query.outlineNodeId || undefined }))
 function syncScope() {
   if (route.path !== '/knowledge/question') return
   listRef.value?.setFilters(routeScope.value)
 }
 watch(() => [route.path, route.query.outlineId, route.query.outlineNodeId], syncScope)
-async function updateHtml(row) {
-  importRef.value.show('update', (await getRecord('question', row.id)).data)
+function openRouteQuestion() {
+  if (route.path === '/knowledge/question' && typeof route.query.questionId === 'string' && /^[1-9]\d*$/.test(route.query.questionId)) detailRef.value?.show({ id: route.query.questionId })
 }
-async function derive(row) {
-  importRef.value.show('derive', (await getRecord('question', row.id)).data)
+watch(() => [route.path, route.query.questionId], openRouteQuestion)
+onMounted(openRouteQuestion)
+async function openImport(intent, row) {
+  const ticket = importRequests.start()
+  const current = (await getRecord('question', row.id)).data
+  if (importRequests.current(ticket) && route.path === '/knowledge/question') importRef.value.show(intent, current)
 }
+function updateHtml(row) { return openImport('update', row) }
+function derive(row) { return openImport('derive', row) }
 async function download(rows) {
   exporting.value = true
   try {
     await exportQuestions(
-      { questionIds: rows.map((row) => row.id), includeAnswers: true },
+      { questionIds: rows.map((row) => String(row.id)), includeAnswers: true, purpose: viewQuery.value.purpose },
       '所选题目-资源包.zip'
     )
   } catch (e) {
@@ -242,3 +266,6 @@ async function download(rows) {
   }
 }
 </script>
+<style scoped>
+.question-views { margin: 16px 20px 0; }
+</style>

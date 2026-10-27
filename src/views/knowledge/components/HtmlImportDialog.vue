@@ -6,13 +6,15 @@
     append-to-body
     destroy-on-close
     :close-on-click-modal="!busy"
+    :close-on-press-escape="!busy"
+    :show-close="!busy"
   >
     <el-alert
       :title="
         mode === 'update'
-          ? '上传本地修改后的标准 HTML，保留题目编号和行版本；版本冲突会拒绝覆盖。'
+          ? '上传修改后的标准 HTML，保留题目编号和行版本；关键修改会退回草稿，版本冲突拒绝覆盖。'
           : mode === 'derive'
-            ? '变式会新建独立题目并关联母题，不继承母题的已核实真题身份。'
+            ? '变式保存为草稿，并校验冻结母题版本与哈希；不继承母题的真题身份。'
             : '此窗口接收标准 HTML 文件，可批量导入。Agent 也可通过统一 JSON 接口录入；页面可编辑分类与关联元数据。'
       "
       type="info"
@@ -73,7 +75,9 @@
         导出母题 / 原题资源包
       </el-button>
     </div>
-    <el-form label-width="110px" :disabled="busy">
+    <el-alert v-if="pendingImport" :title="`此提交尚未完整确认，已保留原文件与提交标识 ${pendingImport.fields.idempotencyKey}，请按原请求重试。`" type="warning" :closable="false" class="mb8" />
+    <el-alert v-if="importFailure" :title="importFailure" type="error" :closable="false" class="mb8" />
+    <el-form label-width="110px" :disabled="busy || !!pendingImport">
       <el-collapse class="mb8">
         <el-collapse-item title="下载模板的分类、考点与排版" name="metadata">
           <el-form-item label="内容类型">
@@ -94,6 +98,7 @@
           <el-form-item label="内容单元"><enum-select v-model="templateMeta.unitKind" field="unitKind" /></el-form-item>
           <el-form-item label="分页方式"><enum-select v-model="templateMeta.paginationMode" field="paginationMode" /></el-form-item>
           <el-form-item label="排版说明"><el-input v-model="templateMeta.layoutNote" type="textarea" :rows="2" maxlength="2000" show-word-limit /></el-form-item>
+          <p class="form-hint">计算练习默认一条 GROUP 至少 3 个完整小题；真实母题不足 3 个需专项数量批准，不能添题或拼题凑数。</p>
           <p class="form-hint">10 道口算可放在同一组合内容中，整体检索和复用，不会拆成 10 条题库记录。条目数由正文结构计算；选择题选项支持单独的 HTML 区域。</p>
           <p class="form-hint">这些选项写入下载的模板。实际导入以 HTML 内逐条元数据为准；不会覆盖已选文件中的分类。</p>
         </el-collapse-item>
@@ -190,6 +195,8 @@
           <el-table-column label="内容单元" width="120"><template #default="{ row }">{{ metadataLabel('unitKind', row) }}</template></el-table-column>
           <el-table-column label="呈现方式" width="120"><template #default="{ row }">{{ metadataLabel('layoutMode', row) }}</template></el-table-column>
           <el-table-column label="分页方式" width="130"><template #default="{ row }">{{ metadataLabel('paginationMode', row) }}</template></el-table-column>
+          <el-table-column label="小题数" prop="itemCount" width="90" />
+          <el-table-column label="数量例外凭据" prop="granularityExceptionId" min-width="180" />
           <el-table-column label="排版说明" prop="layoutNote" min-width="180" show-overflow-tooltip />
           <el-table-column label="考点" min-width="180"><template #default="{ row }"><relation-names v-if="row.kpIds" type="kp" :ids="row.kpIds" /><span v-else>{{ row.intent === 'update' ? '保留线上考点' : '待补充考点' }}</span></template></el-table-column>
         </el-table>
@@ -198,94 +205,7 @@
         <html-preview :html="previewHtml" />
       </el-collapse-item>
     </el-collapse>
-    <div v-if="result" class="import-result">
-      <el-alert
-        :title="resultTitle"
-        :type="
-          result.status === 'SUCCESS'
-            ? 'success'
-            : result.status === 'FAILED'
-              ? 'error'
-              : 'warning'
-        "
-        :closable="false"
-        show-icon
-      />
-      <p>
-        批次编号：{{ result.batchId }}
-        <el-button
-          v-hasPermi="['knowledge:import:query']"
-          link
-          type="primary"
-          @click="refreshResult"
-        >
-          刷新结果
-        </el-button>
-        <el-button
-          v-if="result.status === 'PROCESSING' && result.inputReady"
-          v-hasPermi="['knowledge:import:execute']"
-          type="warning"
-          plain
-          :disabled="leaseActive || busy"
-          :loading="resuming"
-          @click="resumeBatch"
-        >
-          恢复未完成题目
-        </el-button>
-      </p>
-      <el-alert
-        v-if="recoveryNotice"
-        :title="recoveryNotice"
-        :type="result.status === 'FAILED' ? 'error' : 'warning'"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="result.lastError"
-        :title="`上次处理反馈：${result.lastError}`"
-        type="warning"
-        :closable="false"
-        class="mb8"
-      />
-      <el-table :data="result.items || []">
-        <el-table-column
-          label="本地题目标识"
-          prop="clientKey"
-          min-width="180"
-        />
-        <el-table-column label="处理方式" width="100">
-          <template #default="{ row }">
-            {{ intentLabel[row.intent] || '未识别' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            {{ label('importItemStatus', row.status) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="题目编号" prop="questionId" width="100" />
-        <el-table-column label="反馈" prop="message" min-width="200" />
-      </el-table>
-      <el-collapse v-if="result.resources?.length">
-        <el-collapse-item
-          :title="`已接收 ${result.resources.length} 个配套资源`"
-        >
-          <el-table :data="result.resources">
-            <el-table-column
-              label="资源文件"
-              prop="resourceKey"
-              min-width="240"
-            />
-            <el-table-column label="文件大小" width="120">
-              <template #default="{ row }">
-                {{ Math.ceil(Number(row.fileSize || 0) / 1024) }} KB
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-collapse-item>
-      </el-collapse>
-    </div>
+    <import-batch-result v-if="result" :result="result" :busy="busy" :resuming="resuming" :lease-active="!!leaseActive" :recovery-notice="recoveryNotice" @refresh="refreshResult" @resume="resumeBatch" />
     <template #footer>
       <el-button
         type="primary"
@@ -293,7 +213,7 @@
         :disabled="!htmlFile || !!preflightError"
         @click="submit"
       >
-        上传并导入
+        {{ pendingImport ? '按原请求重试上传' : '上传并导入' }}
       </el-button>
       <el-button :disabled="busy" @click="open = false">关闭</el-button>
     </template>
@@ -312,6 +232,11 @@ import RelationNames from './RelationNames.vue'
 import EnumSelect from './EnumSelect.vue'
 import HtmlPreview from './HtmlPreview.vue'
 import { label } from './labels'
+import ImportBatchResult from './ImportBatchResult.vue'
+import { calculationPreflight, derivePreflight } from './importReview'
+import { knownReviewRejection } from './reviewState'
+import { createRequestGeneration } from '@/utils/request-generation'
+import useUserStore from '@/store/modules/user'
 import { questionLayoutCss } from './questionLayout'
 import { exchangeExamples } from './exchangeExamples'
 import { ElMessage } from 'element-plus'
@@ -356,16 +281,24 @@ const batchLookup = ref(''),
   resuming = ref(false),
   leaseNow = ref(Date.now())
 let leaseTimer
-const lastBatchKey = 'knowledge:last-import-batch'
+const user = useUserStore()
+const pendingImport = shallowRef(null), importFailure = ref('')
+watch(() => [user.id, user.name], () => {
+  pendingImport.value = null; importFailure.value = ''; open.value = false; result.value = null
+  previewRequests.invalidate(); batchRequests.invalidate(); schemaRequests.invalidate()
+})
+const lastBatchKey = computed(() => `knowledge:last-import-batch:${user.id || user.name}`)
+const previewRequests = createRequestGeneration(), batchRequests = createRequestGeneration(), schemaRequests = createRequestGeneration()
 watch(open, (visible) => {
   clearInterval(leaseTimer)
+  if (!visible) { previewRequests.invalidate(); batchRequests.invalidate(); schemaRequests.invalidate() }
   leaseNow.value = Date.now()
   if (visible)
     leaseTimer = setInterval(() => {
       leaseNow.value = Date.now()
     }, 1000)
 })
-onBeforeUnmount(() => clearInterval(leaseTimer))
+onBeforeUnmount(() => { clearInterval(leaseTimer); previewRequests.invalidate(); batchRequests.invalidate(); schemaRequests.invalidate() })
 const leaseActive = computed(
   () =>
     result.value?.leaseUntil &&
@@ -393,14 +326,13 @@ const dialogTitle = computed(() =>
       ? '上传 HTML 更新正文'
       : '上传 HTML 新建题目 / 导出回流'
 )
-const resultTitle = computed(
-  () =>
-    `${label('importStatus', result.value.status)}：成功 ${result.value.successCount || 0}，失败 ${result.value.failureCount || 0}`
-)
 const newKey = () =>
   globalThis.crypto?.randomUUID?.() ||
   `import-${Date.now()}-${Math.random().toString(36).slice(2)}`
 async function show(intent = 'create', record = null) {
+  if (busy.value || pendingImport.value) { open.value = true; return }
+  importFailure.value = ''
+  const schemaTicket = schemaRequests.start()
   Object.assign(derivation, {
     operation: 'OTHER',
     changeNote: '',
@@ -421,20 +353,20 @@ async function show(intent = 'create', record = null) {
   idempotencyKey.value = newKey()
   try {
     batchLookup.value =
-      JSON.parse(sessionStorage.getItem(lastBatchKey) || '{}').batchId || ''
+      JSON.parse(sessionStorage.getItem(lastBatchKey.value) || '{}').batchId || ''
   } catch {
     batchLookup.value = ''
   }
   open.value = true
   try {
-    instanceId.value = (
-      await knowledgeRequest('/import/schema')
-    ).data.instanceId
+    const schema = (await knowledgeRequest('/import/schema')).data
+    if (schemaRequests.current(schemaTicket)) instanceId.value = schema.instanceId
   } catch {
-    instanceId.value = ''
+    if (schemaRequests.current(schemaTicket)) instanceId.value = ''
   }
 }
 function clearHtml() {
+  previewRequests.invalidate()
   htmlFile.value = null
   previewHtml.value = ''
   preflightError.value = ''
@@ -447,14 +379,16 @@ async function selectHtml(item) {
       ? result.value.idempotencyKey || idempotencyKey.value
       : null
   clearHtml()
+  const ticket = previewRequests.start()
   htmlFile.value = item.raw
   idempotencyKey.value = originalKey || newKey()
   if (item.raw.size > 2 * 1024 * 1024) {
     preflightError.value = 'HTML 文件不能超过 2 MB'
     return
   }
-  const text = await item.raw.text(),
-    documentHtml = new DOMParser().parseFromString(text, 'text/html')
+  const text = await item.raw.text()
+  if (!previewRequests.current(ticket)) return
+  const documentHtml = new DOMParser().parseFromString(text, 'text/html')
   if (
     documentHtml.querySelector('meta[name="kb-schema"]')?.content !==
     'kb-question-html/v1'
@@ -468,6 +402,13 @@ async function selectHtml(item) {
     preflightError.value = '每个 HTML 需包含 1～200 道题目'
     return
   }
+  previewHtml.value = articles
+    .map(article => {
+      const stem = article.querySelector(':scope > [data-part="stem"]')?.innerHTML || '<p>缺少题干区域</p>'
+      const options = article.querySelector(':scope > [data-part="options"]')
+      return stem + (options ? `<div data-kb-role="options">${options.innerHTML}</div>` : '')
+    })
+    .join('<hr>')
   for (const article of articles) {
     let metadata
     try {
@@ -476,7 +417,11 @@ async function selectHtml(item) {
       preflightError.value = '内容元数据 JSON 格式错误，请检查 data-kb-metadata 区域'
       return
     }
-    previewMetadata.value.push({ ...metadata, title: metadata.title || article.dataset.clientKey, intent: article.dataset.intent })
+    const itemCount = article.querySelector(':scope > [data-part="stem"] [data-kb-role="group"]')?.querySelectorAll(':scope > [data-item-key]').length || 1
+    const exceptionId = article.dataset.granularityExceptionId || ''
+    previewMetadata.value.push({ ...metadata, title: metadata.title || article.dataset.clientKey, intent: article.dataset.intent, itemCount, granularityExceptionId: exceptionId })
+    const reviewError = calculationPreflight(metadata, article.dataset.intent, itemCount, exceptionId) || derivePreflight(article.dataset, mode.value === 'derive' ? question.value : null)
+    if (reviewError) { preflightError.value = reviewError; return }
     if (
       !article.dataset.clientKey ||
       !['create', 'update', 'derive'].includes(article.dataset.intent)
@@ -514,13 +459,7 @@ async function selectHtml(item) {
       return
     }
   }
-  previewHtml.value = articles
-    .map(article => {
-      const stem = article.querySelector(':scope > [data-part="stem"]')?.innerHTML || '<p>缺少题干区域</p>'
-      const options = article.querySelector(':scope > [data-part="options"]')
-      return stem + (options ? `<div data-kb-role="options">${options.innerHTML}</div>` : '')
-    })
-    .join('<hr>')
+
 }
 function escapeAttribute(value) {
   return String(value ?? '')
@@ -556,9 +495,10 @@ function downloadTemplate() {
     mode.value === 'update'
       ? ` data-question-id="${escapeAttribute(q.id)}" data-row-version="${escapeAttribute(q.rowVersion)}"`
       : mode.value === 'derive'
-        ? ` data-parent-id="${escapeAttribute(q.id)}"`
+        ? ` data-parent-id="${escapeAttribute(q.id)}" data-expected-parent-row-version="${escapeAttribute(q.rowVersion)}" data-expected-parent-stem-hash="${escapeAttribute(q.stemHash)}" data-expected-parent-content-hash="${escapeAttribute(q.contentHash)}"`
         : ''
-  const group = '<div data-kb-role="group" data-columns="2"><div data-item-key="1"><p>（1）请填写第 1 项。</p></div><div data-item-key="2"><p>（2）请填写第 2 项。</p></div></div>'
+  const groupCount = templateMeta.questionType === 'CALCULATION' ? 3 : 2
+  const group = `<div data-kb-role="group" data-columns="2">${Array.from({ length: groupCount }, (_, index) => `<div data-item-key="${index + 1}"><p>（${index + 1}）请填写第 ${index + 1} 项。</p></div>`).join('')}</div>`
   const parts = {
     stem: q.stemHtml || (templateMeta.unitKind === 'GROUP' ? group : '<p>请在本地填写题干，图片与此文件一同上传。</p>'),
     answer: q.answerHtml || (templateMeta.unitKind === 'GROUP' ? group : '<p>请在本地填写答案。</p>'),
@@ -585,7 +525,7 @@ async function exportOriginal() {
   exporting.value = true
   try {
     await exportQuestions(
-      { questionIds: [question.value.id], includeAnswers: true },
+      { questionIds: [question.value.id], includeAnswers: true, purpose: 'MAINTENANCE' },
       `${question.value.title || '题目'}-资源包.zip`
     )
   } catch (e) {
@@ -595,21 +535,27 @@ async function exportOriginal() {
   }
 }
 async function submit() {
+  if (busy.value || !htmlFile.value || preflightError.value) return
   if (!idempotencyKey.value.trim()) return ElMessage.warning('请填写提交标识')
-  busy.value = true
+  const accountKey = lastBatchKey.value
+  if (!pendingImport.value) pendingImport.value = {
+    file: htmlFile.value,
+    resources: resourceFiles.value.map(item => item.raw),
+    fields: { idempotencyKey: idempotencyKey.value.trim(), sourceId: sourceIds.value[0] }
+  }
+  const submission = pendingImport.value
+  busy.value = true; importFailure.value = ''
   try {
-    const batch = (
-      await importHtml(
-        htmlFile.value,
-        resourceFiles.value.map((item) => item.raw),
-        {
-          idempotencyKey: idempotencyKey.value.trim(),
-          sourceId: sourceIds.value[0]
-        }
-      )
-    ).data
+    const batch = (await importHtml(submission.file, submission.resources, submission.fields)).data
+    if (lastBatchKey.value !== accountKey) return
+    if (!batch?.batchId) throw new Error('未取得批次回执，请保留原请求重试')
+    pendingImport.value = batch.status === 'RECEIVING' ? submission : null
     applyBatch(batch)
     emit('completed', result.value)
+  } catch (failure) {
+    if (lastBatchKey.value !== accountKey) return
+    if (knownReviewRejection(failure)) pendingImport.value = null
+    importFailure.value = failure.message || '提交结果未知，请保留原文件与提交标识重试'
   } finally {
     busy.value = false
   }
@@ -624,7 +570,7 @@ function applyBatch(batch) {
     idempotencyKey.value = batch.idempotencyKey
   try {
     sessionStorage.setItem(
-      lastBatchKey,
+      lastBatchKey.value,
       JSON.stringify({ batchId: String(batch.batchId) })
     )
   } catch {
@@ -638,9 +584,12 @@ async function loadBatch(id) {
       : batchLookup.value.trim()
   if (!/^\d+$/.test(batchId))
     return ElMessage.warning('请输入有效的导入批次编号')
+  const ticket = batchRequests.start()
   readingBatch.value = true
   try {
-    applyBatch((await knowledgeRequest(`/import/${batchId}`)).data)
+    const batch = (await knowledgeRequest(`/import/${batchId}`)).data
+    if (!batchRequests.current(ticket)) return null
+    applyBatch(batch)
     if (['SUCCESS', 'PARTIAL', 'FAILED'].includes(result.value.status))
       emit('completed', result.value)
     return result.value
@@ -648,7 +597,7 @@ async function loadBatch(id) {
     /* Request interceptor displays the server error. */
     return null
   } finally {
-    readingBatch.value = false
+    if (batchRequests.current(ticket)) readingBatch.value = false
   }
 }
 async function resumeBatch() {

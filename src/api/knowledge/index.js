@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import { saveAs } from 'file-saver'
+import { businessError } from '@/utils/business-error'
 
 export const listRecords = (type, params) =>
   request({ url: `/knowledge/${type}/list`, method: 'get', params })
@@ -55,7 +56,7 @@ export async function downloadKnowledge(url, filename, params) {
   })
   if (blob.type?.includes('json')) {
     const result = JSON.parse(await blob.text())
-    throw new Error(result.msg || '下载失败，请重试')
+    throw businessError(result, '下载失败，请重试')
   }
   saveAs(blob, filename)
 }
@@ -70,7 +71,7 @@ export async function exportQuestions(data, filename) {
   })
   if (blob.type?.includes('json')) {
     const result = JSON.parse(await blob.text())
-    throw new Error(result.msg || '导出失败')
+    throw businessError(result, '导出失败')
   }
   saveAs(blob, filename)
 }

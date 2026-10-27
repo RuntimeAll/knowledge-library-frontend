@@ -6,6 +6,7 @@ import { tansParams, blobValidate } from '@/utils/ruoyi'
 import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
 import useUserStore from '@/store/modules/user'
+import { businessError } from './business-error'
 
 let downloadLoadingInstance
 // 是否显示重新登录
@@ -77,7 +78,7 @@ service.interceptors.request.use(config => {
 // 响应拦截器
 service.interceptors.response.use(res => {
     // 未设置状态码则默认成功状态
-    const code = res.data.code || 200
+    const code = res.data.code ?? 200
     // 获取错误信息
     const msg = errorCode[code] || res.data.msg || errorCode['default']
     // 二进制数据则直接返回
@@ -96,24 +97,28 @@ service.interceptors.response.use(res => {
         isRelogin.show = false
       })
     }
-      return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+      return Promise.reject(businessError(res.data, '无效的会话，或者会话已过期，请重新登录。'))
     } else if (code === 500) {
       ElMessage({ message: msg, type: 'error' })
-      return Promise.reject(new Error(msg))
+      return Promise.reject(businessError(res.data, msg))
     } else if (code === 601) {
       ElMessage({ message: msg, type: 'warning' })
-      return Promise.reject(new Error(msg))
+      return Promise.reject(businessError(res.data, msg))
     } else if (code !== 200) {
       ElNotification.error({ title: msg })
       // Keep business rejection codes so idempotent workflows can distinguish
       // a confirmed validation/conflict response from an unknown network result.
-      return Promise.reject(Object.assign(new Error(msg), { code }))
+      return Promise.reject(businessError(res.data, msg))
     } else {
       return  Promise.resolve(res.data)
     }
   },
   error => {
-    console.log('err' + error)
+    if (error.response?.data && typeof error.response.data.code === 'number') {
+      const rejection = businessError(error.response.data)
+      ElMessage({ message: rejection.message, type: 'error', duration: 5 * 1000 })
+      return Promise.reject(rejection)
+    }
     let { message } = error
     if (message == "Network Error") {
       message = "后端接口连接异常"

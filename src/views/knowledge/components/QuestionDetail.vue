@@ -7,7 +7,9 @@
   >
     <div v-loading="loading">
       <div class="detail-toolbar">
+        <el-button v-hasPermi="['knowledge:question:query']" :loading="loading" @click="reload">重新读取当前题目</el-button>
         <el-button
+          v-if="!['DELETED', 'RETIRED'].includes(question.status)"
           v-hasPermi="['knowledge:question:edit']"
           type="primary"
           plain
@@ -17,6 +19,7 @@
           编辑元数据
         </el-button>
         <el-button
+          v-if="!['DELETED', 'RETIRED'].includes(question.status)"
           v-hasPermi="['knowledge:import:execute']"
           icon="Upload"
           @click="importRef.show('update', question)"
@@ -24,6 +27,7 @@
           上传 HTML 更新正文
         </el-button>
         <el-button
+          v-if="question.status === 'READY'"
           v-hasPermi="['knowledge:import:execute']"
           icon="Plus"
           @click="importRef.show('derive', question)"
@@ -36,7 +40,7 @@
           :loading="exporting"
           @click="download"
         >
-          导出资源包
+          导出修改资源包
         </el-button>
       </div>
       <el-descriptions :column="3" border>
@@ -82,6 +86,7 @@
           <relation-names type="kp" :ids="question.kpIds" />
         </el-descriptions-item>
       </el-descriptions>
+      <question-review-panel v-if="question.rowVersion != null" :question="question" @changed="changed" />
       <el-alert v-if="queryMatchReasons.length" :title="`本次查询命中：${queryMatchReasons.join('；')}`" type="info" :closable="false" class="detail-alert" />
       <template v-for="group in matchedGroups" :key="group.title">
         <template v-if="group.rows.length">
@@ -209,6 +214,8 @@ import Occurrences from './Occurrences.vue'
 import AssetFiles from './AssetFiles.vue'
 import QuestionEditor from './QuestionEditor.vue'
 import HtmlImportDialog from './HtmlImportDialog.vue'
+import QuestionReviewPanel from './QuestionReviewPanel.vue'
+import { createRequestGeneration } from '@/utils/request-generation'
 import { ElMessage } from 'element-plus'
 const emit = defineEmits(['changed'])
 const open = ref(false),
@@ -222,12 +229,16 @@ const open = ref(false),
 const occurrenceRef = ref()
 const queryMatchReasons = ref([])
 const queryOccurrences = ref(null)
+const detailRequests = createRequestGeneration(), lineageRequests = createRequestGeneration()
+watch(open, visible => { if (!visible) { detailRequests.invalidate(); lineageRequests.invalidate() } })
+onBeforeUnmount(() => { detailRequests.invalidate(); lineageRequests.invalidate() })
 const matchedGroups = computed(() => {
   const context = queryOccurrences.value || question.value
   const prefix = queryOccurrences.value ? '本次查询命中' : '当前'
   return [{ title:`${prefix}的有效真题出处`,rows:context.matchedExamOccurrences || [] }, {title:`${prefix}的错题收录出处`,rows:context.matchedWrongOccurrences || []}]
 })
 async function show(row) {
+  lineageRequests.invalidate()
   queryMatchReasons.value = row.matchReasons || []
   queryOccurrences.value = Array.isArray(row.matchedExamOccurrences) || Array.isArray(row.matchedWrongOccurrences) ? { matchedExamOccurrences:row.matchedExamOccurrences || [],matchedWrongOccurrences:row.matchedWrongOccurrences || [] } : null
   question.value = { id: row.id }
@@ -237,19 +248,22 @@ async function show(row) {
   await reload()
 }
 async function reload() {
+  const ticket = detailRequests.start(), id = question.value.id
   loading.value = true
   try {
-    question.value = (await getRecord('question', question.value.id)).data
+    const current = (await getRecord('question', id)).data
+    if (!detailRequests.current(ticket)) return
+    question.value = current
     if (tab.value === 'lineage') await tabChanged('lineage')
   } finally {
-    loading.value = false
+    if (detailRequests.current(ticket)) loading.value = false
   }
 }
 async function tabChanged(name) {
-  if (name === 'lineage')
-    lineage.value = (
-      await knowledgeRequest(`/question/${question.value.id}/lineage`)
-    ).data
+  const ticket = lineageRequests.start(), id = question.value.id
+  if (name !== 'lineage') return
+  const result = (await knowledgeRequest(`/question/${id}/lineage`)).data
+  if (lineageRequests.current(ticket) && String(question.value.id) === String(id)) lineage.value = result
 }
 async function changed() {
   queryMatchReasons.value = []
@@ -258,13 +272,13 @@ async function changed() {
     await reload()
     await occurrenceRef.value?.reload()
   }
-  emit('changed')
+  emit('changed', question.value)
 }
 async function download() {
   exporting.value = true
   try {
     await exportQuestions(
-      { questionIds: [question.value.id], includeAnswers: true },
+      { questionIds: [question.value.id], includeAnswers: true, purpose: 'MAINTENANCE' },
       `${question.value.title}-资源包.zip`
     )
   } catch (e) {

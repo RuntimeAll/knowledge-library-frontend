@@ -102,6 +102,18 @@ export const constantRoutes = [
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
   {
+    path: '/knowledge/review',
+    component: Layout,
+    hidden: true,
+    permissions: ['knowledge:question:granularityException'],
+    children: [{
+      path: 'runs/:runId/candidates/:candidateKey',
+      component: () => import('@/views/knowledge/review/candidate.vue'),
+      name: 'KnowledgeCandidateReview',
+      meta: { title: '候选数量审核', activeMenu: '/knowledge/question', noCache: true }
+    }]
+  },
+  {
     path: '/system/user-auth',
     component: Layout,
     hidden: true,

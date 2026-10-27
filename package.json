@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "lint": "node quality/check-eslint.mjs",
     "lint:full": "eslint src vite vite.config.js eslint.config.js quality tests",
-    "test:quality": "node --test tests/quality.test.mjs"
+    "test:quality": "node --test tests/quality.test.mjs",
+    "test:review": "node --test tests/review.test.mjs tests/review-contract.test.mjs",
+    "test:review-ui": "node tests/review-ui.mjs"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"

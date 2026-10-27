@@ -198,7 +198,7 @@
         </el-button>
       </template>
     </resource-list>
-    <question-detail ref="detailRef" @changed="listRef.reload()" />
+    <question-detail ref="detailRef" @changed="listRef.reload()" @loaded="row => batchRef?.recordViewed(row)" />
     <question-editor ref="editorRef" @saved="listRef.reload()" />
     <html-import-dialog ref="importRef" @completed="listRef.reload()" />
     <question-approval-batch ref="batchRef" @changed="listRef.reload()" @detail="row => detailRef.show(row)" />

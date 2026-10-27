@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { businessError } from '../src/utils/business-error.js'
 import { createRequestGeneration } from '../src/utils/request-generation.js'
-import { actionPayload, batchItems, knownReviewRejection, mergeApprovalResults, pendingReviewKey, readPendingReview, unresolvedApprovalItems } from '../src/views/knowledge/components/reviewState.js'
+import { actionPayload, approvalSnapshot, batchItems, knownReviewRejection, mergeApprovalResults, pendingReviewKey, readPendingReview, unresolvedApprovalItems } from '../src/views/knowledge/components/reviewState.js'
 import { calculationPreflight, derivePreflight } from '../src/views/knowledge/components/importReview.js'
 import { materialQuestions } from '../src/views/knowledge/components/materialSelection.js'
 import { candidateContent, candidateReviewable } from '../src/views/knowledge/components/candidateContent.js'
 
 test('审批保持大整数ID与版本字符串，并拒绝已可能损失精度的数字输入', () => {
-  const row = { id: '9007199254740993123', rowVersion: '9007199254740993124' }
+  const row = { id: '9007199254740993123', rowVersion: '9007199254740993124', contentHash: 'a'.repeat(64) }
   const [item] = batchItems([row], '已核对完整题面与来源')
   assert.equal(item.questionId, row.id)
   assert.equal(item.expectedRowVersion, row.rowVersion)
@@ -19,7 +19,7 @@ test('审批保持大整数ID与版本字符串，并拒绝已可能损失精度
 })
 
 test('部分成功恢复只重试未确认操作，保留成功回执和冲突，不自动换版本', () => {
-  const items = batchItems(['11', '12', '13'].map(id => ({ id, rowVersion: '7' })), '审核通过')
+  const items = batchItems(['11', '12', '13'].map(id => ({ id, rowVersion: '7', contentHash: 'a'.repeat(64) })), '审核通过')
   const first = items.map((item, index) => ({ questionId: item.questionId, operationId: item.operationId, outcome: ['SUCCESS', 'CONFLICT', 'PENDING'][index] }))
   assert.deepEqual(unresolvedApprovalItems(items, first), [items[2]])
   const final = mergeApprovalResults(first, [{ ...first[2], outcome: 'SUCCESS' }])
@@ -30,6 +30,17 @@ test('部分成功恢复只重试未确认操作，保留成功回执和冲突�
   assert.throws(() => mergeApprovalResults(first, [{ ...first[0], questionId: 'other' }], items), /身份/)
   assert.throws(() => mergeApprovalResults(first, [first[0], first[0]], items), /身份/)
   assert.deepEqual(unresolvedApprovalItems(items, [{ ...first[0], outcome: 'UNKNOWN' }]), items)
+})
+
+test('批准绑定真正打开的完整内容摘要，拒绝同版本依赖变化且不静默换摘要', () => {
+  const question = { id: '12', rowVersion: '0', contentHash: 'a'.repeat(64) }
+  const readiness = { questionId: '12', rowVersion: '0', contentHash: question.contentHash }
+  const snapshot = approvalSnapshot(question, readiness)
+  question.contentHash = 'b'.repeat(64)
+  assert.equal(actionPayload(snapshot, '逐题核对通过', true).expectedContentHash, 'a'.repeat(64))
+  assert.throws(() => approvalSnapshot(question, readiness), /依赖已经变化/)
+  assert.throws(() => batchItems([{ id: '12', rowVersion: '0' }], '审批'), /逐题打开/)
+  assert.equal(actionPayload(question, '仅停用', false).expectedContentHash, undefined)
 })
 
 test('业务失败保留结构化检查及回执，过滤凭据，503和网络未知结果可按原身份恢复', () => {

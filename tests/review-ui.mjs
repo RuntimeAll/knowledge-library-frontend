@@ -136,6 +136,14 @@ try {
   await page.locator('.app-container .el-table__header-wrapper').first().locator('.el-checkbox').click()
   await page.getByRole('button', { name: '逐题批准所选', exact: true }).click()
   const batch = page.getByRole('dialog', { name: '逐题批准正常', exact: true })
+  assert.equal(await batch.getByRole('checkbox').isDisabled(), true)
+  for (const row of rows) {
+    await batch.getByRole('row').filter({ hasText: row.id }).getByRole('button', { name: '查看', exact: true }).click()
+    const viewed = page.getByRole('dialog', { name: `内容详情 · 审核样例 ${row.id}`, exact: true })
+    await viewed.frameLocator('iframe').first().getByText('2 + 3 =', { exact: true }).waitFor()
+    await viewed.locator('.el-drawer__close-btn').click()
+    await viewed.waitFor({ state: 'hidden' })
+  }
   await batch.getByRole('textbox').fill('已逐题核对题干、答案和真实来源')
   await batch.locator('.el-checkbox').click()
   await batch.getByRole('button', { name: '逐题批准', exact: true }).click()
@@ -146,6 +154,7 @@ try {
   assert.equal(batchRequests[1].body.items.length, 1)
   assert.deepEqual(batchRequests[1].body.items[0], batchRequests[0].body.items[2])
   assert.equal(typeof batchRequests[0].body.items[0].questionId, 'string')
+  assert.ok(batchRequests[0].body.items.every(item => item.expectedContentHash === detailContentHash))
   await batch.getByRole('button', { name: '关闭', exact: true }).click()
 
   await page.goto(`${base}/knowledge/question?questionId=${rows[0].id}`)
@@ -169,6 +178,7 @@ try {
   const approvals = actions.filter(action => action.path.endsWith('/approve'))
   assert.deepEqual(approvals[0].body, approvals[1].body)
   assert.equal(approvals[0].body.expectedRowVersion, '8')
+  assert.equal(approvals[0].body.expectedContentHash, detailContentHash)
   await detail.getByRole('button', { name: '退回草稿', exact: true }).click()
   const returnDialog = page.getByRole('dialog', { name: '退回草稿', exact: true })
   await returnDialog.getByText('本次只停用当前题目，保留既有派生的状态。', { exact: true }).waitFor()

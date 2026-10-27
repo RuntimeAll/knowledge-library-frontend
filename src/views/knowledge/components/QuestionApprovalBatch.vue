@@ -5,10 +5,11 @@
       <el-table-column label="题目编号" prop="id" width="160" />
       <el-table-column label="名称" prop="title" min-width="200" />
       <el-table-column label="审查版本" prop="rowVersion" width="120" />
+      <el-table-column label="详情" width="110"><template #default="{ row }">{{ row.contentHash ? '已打开' : '待逐题打开' }}</template></el-table-column>
       <el-table-column label="内容" width="90"><template #default="{ row }"><el-button link type="primary" @click="$emit('detail', row)">查看</el-button></template></el-table-column>
     </el-table>
     <el-input v-model="reason" type="textarea" :rows="3" maxlength="2000" show-word-limit :disabled="busy || !!requestItems.length" placeholder="填写本批审查结论及依据" class="mt12" />
-    <el-checkbox v-model="reviewed" :disabled="busy || !!requestItems.length" class="mt12">已核对以上各题当前版本的题面、答案、来源及分类</el-checkbox>
+    <el-checkbox v-model="reviewed" :disabled="busy || !!requestItems.length || rows.some(row => !row.contentHash)" class="mt12">已核对以上各题当前版本的题面、答案、来源及分类</el-checkbox>
     <el-alert v-if="error" :title="error" type="error" :closable="false" class="mt12" />
     <el-alert v-if="pendingItems.length" :title="`尚有 ${pendingItems.length} 项结果未确认，请按原操作编号重试查回。`" type="warning" :closable="false" class="mt12" />
     <el-alert v-if="results.length" :title="summary" :type="results.every(item => item.outcome === 'SUCCESS') && !pendingItems.length ? 'success' : 'warning'" :closable="false" class="mt12" />
@@ -61,6 +62,14 @@ function persist(key) {
   if (pendingItems.value.length) sessionStorage.setItem(key, JSON.stringify({ items: requestItems.value, results: results.value, rows: rows.value }))
   else sessionStorage.removeItem(key)
 }
+function recordViewed(question) {
+  if (!open.value || busy.value || requestItems.value.length) return
+  const row = rows.value.find(item => item.id === question.id)
+  if (!row) return
+  reviewed.value = false
+  row.rowVersion = question.rowVersion
+  row.contentHash = question.status === 'DRAFT' ? question.contentHash : null
+}
 async function submit() {
   if (busy.value) return
   try { if (!requestItems.value.length) requestItems.value = batchItems(rows.value, reason.value) }
@@ -86,5 +95,5 @@ async function submit() {
     error.value = failure.message || '本批结果尚未确认，请保留原编号重试查回'
   } finally { busy.value = false }
 }
-defineExpose({ show })
+defineExpose({ show, recordViewed })
 </script>

@@ -19,10 +19,17 @@ export function readPendingReview(storage, key) {
 export function knownReviewRejection(error) {
   return isConfirmedBusinessError(error) && [400, 403, 404, 409].includes(error.businessCode)
 }
+export function approvalSnapshot(question, readiness) {
+  if (String(question?.id) !== String(readiness?.questionId) || String(question?.rowVersion) !== String(readiness?.rowVersion)
+    || !/^[a-f0-9]{64}$/.test(question?.contentHash || '') || question.contentHash !== readiness?.contentHash) throw new Error('题目内容或依赖已经变化，请重新读取完整详情后审查')
+  return { id: question.id, rowVersion: question.rowVersion, contentHash: question.contentHash }
+}
 export function actionPayload(row, reason, contentReviewed = false) {
   if (typeof row?.id !== 'string' || !/^[1-9]\d*$/.test(row.id) || typeof row.rowVersion !== 'string' || !/^\d+$/.test(row.rowVersion)) throw new Error('请重新读取题目及字符串版本，避免编号精度损失')
   if (!reason.trim() || reason.trim().length > 2000) throw new Error('请填写 1～2000 字的审查理由')
-  return { operationId: newOperationId(), expectedRowVersion: row.rowVersion, reason: reason.trim(), contentReviewed }
+  if (contentReviewed && !/^[a-f0-9]{64}$/.test(row.contentHash || '')) throw new Error('请逐题打开完整详情并核对后批准')
+  return { operationId: newOperationId(), expectedRowVersion: row.rowVersion, reason: reason.trim(), contentReviewed,
+    ...(contentReviewed ? { expectedContentHash: row.contentHash } : {}) }
 }
 export function batchItems(rows, reason) {
   if (!rows.length || rows.length > 50) throw new Error('每次批准请选择 1～50 道题')

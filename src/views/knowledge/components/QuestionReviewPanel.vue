@@ -45,7 +45,7 @@ import useUserStore from '@/store/modules/user'
 import { checkPermi } from '@/utils/permission'
 import { createRequestGeneration } from '@/utils/request-generation'
 import { getQuestionReadiness, approveQuestion, returnQuestionToDraft, softDeleteQuestion, restoreQuestion, approveGranularityException } from '@/api/knowledge/review'
-import { actionPayload, knownReviewRejection, pendingReviewKey, readPendingReview, reviewActions } from './reviewState'
+import { actionPayload, approvalSnapshot, knownReviewRejection, pendingReviewKey, readPendingReview, reviewActions } from './reviewState'
 import ReviewChecks from './ReviewChecks.vue'
 
 const props = defineProps({ question: { type: Object, required: true } })
@@ -54,6 +54,7 @@ const user = useUserStore()
 const readiness = ref({}), loading = ref(false), busy = ref(false), error = ref(''), pending = ref(null)
 const dialogOpen = ref(false), action = ref('approve'), reason = ref(''), reviewed = ref(false), reasonCategory = ref('STOP_USE'), lastReceipt = ref(null)
 const actionInfo = computed(() => reviewActions[action.value])
+const approvedView = ref(null)
 const storageKey = computed(() => pendingReviewKey(user.id || user.name, `question:${props.question.id}`))
 const canRetry = computed(() => pending.value && checkPermi([reviewActions[pending.value.action]?.permission]))
 const requests = createRequestGeneration()
@@ -61,6 +62,7 @@ const operations = { approve: approveQuestion, draft: returnQuestionToDraft, del
 watch(() => [props.question.id, props.question.rowVersion, user.id, user.name], (current, previous) => {
   if (!previous || current[0] !== previous[0] || current[2] !== previous[2] || current[3] !== previous[3]) lastReceipt.value = null
   requests.invalidate(); readiness.value = {}; error.value = ''; dialogOpen.value = false
+  approvedView.value = null
   pending.value = readPendingReview(sessionStorage, storageKey.value)
   if (props.question.id && props.question.rowVersion != null) load()
 }, { immediate: true })
@@ -82,6 +84,10 @@ async function begin(value) {
   if (storageKey.value !== identity || props.question.rowVersion !== version) return
   if (!readiness.value.questionId || String(readiness.value.rowVersion) !== String(props.question.rowVersion)) return ElMessage.warning('题目版本已经变化，请重新打开详情后审查')
   if (value === 'approve' && !readiness.value.canApprove) return ElMessage.warning('当前检查尚未通过，请核对检查项后重新审查')
+  if (value === 'approve') {
+    try { approvedView.value = approvalSnapshot(props.question, readiness.value) }
+    catch (failure) { return ElMessage.warning(failure.message) }
+  }
   action.value = value; reason.value = ''; reviewed.value = false; reasonCategory.value = 'STOP_USE'; dialogOpen.value = true
 }
 async function submit() {
@@ -90,7 +96,7 @@ async function submit() {
   if (!pending.value) {
     if (!reason.value.trim() || (action.value === 'approve' && !reviewed.value)) return
     let payload
-    try { payload = actionPayload(props.question, reason.value, reviewed.value) }
+    try { payload = actionPayload(action.value === 'approve' ? approvedView.value : props.question, reason.value, reviewed.value) }
     catch (failure) { return ElMessage.warning(failure.message) }
     if (['draft', 'delete'].includes(action.value)) payload.reasonCategory = reasonCategory.value
     if (action.value === 'exception') { payload.questionId = id; delete payload.contentReviewed }

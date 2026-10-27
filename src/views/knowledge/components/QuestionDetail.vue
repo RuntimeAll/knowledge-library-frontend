@@ -217,7 +217,7 @@ import HtmlImportDialog from './HtmlImportDialog.vue'
 import QuestionReviewPanel from './QuestionReviewPanel.vue'
 import { createRequestGeneration } from '@/utils/request-generation'
 import { ElMessage } from 'element-plus'
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'loaded'])
 const open = ref(false),
   loading = ref(false),
   question = ref({}),
@@ -254,6 +254,7 @@ async function reload() {
     const current = (await getRecord('question', id)).data
     if (!detailRequests.current(ticket)) return
     question.value = current
+    emit('loaded', current)
     if (tab.value === 'lineage') await tabChanged('lineage')
   } finally {
     if (detailRequests.current(ticket)) loading.value = false
